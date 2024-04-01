@@ -1,4 +1,4 @@
-# NeuraLUT - COMING SOON
+# NeuraLUT
 NeuraLUT: Hiding Neural Network Density in Boolean Synthesizable Functions
 
 NeuraLUT is the first quantized neural network training methodology that maps dense and full-precision sub-networks with skip-connections to LUTs to leverage the underlying structure of the FPGA architecture. This project is a derivative work based on LogicNets (https://github.com/Xilinx/logicnets) which is licensed under the Apache License 2.0.
