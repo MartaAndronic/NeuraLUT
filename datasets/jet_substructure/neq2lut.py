@@ -167,6 +167,12 @@ if __name__ == "__main__":
         default=False,
         help="Add registers between each layer in generated verilog (default: %(default)s)",
     )
+    parser.add_argument(
+        "--cuda",
+        action="store_true",
+        default=True,
+        help="Train on a GPU (default: %(default)s)",
+    )
     args = parser.parse_args()
     defaults = configs[args.arch]
     options = vars(args)
@@ -179,7 +185,7 @@ if __name__ == "__main__":
 
     if not os.path.exists(config["log_dir"]):
         os.makedirs(config["log_dir"])
-
+    
     # Split up configuration options to be more understandable
     model_cfg = {}
     for k in model_config.keys():
@@ -189,19 +195,18 @@ if __name__ == "__main__":
         dataset_cfg[k] = config[k]
     options_cfg = {}
     for k in other_options.keys():
-        if k == "cuda":
-            continue
         options_cfg[k] = config[k]
-
+    model_cfg["cuda"] = options_cfg["cuda"]
     # Set random seeds
     random.seed(config["seed"])
     np.random.seed(config["seed"])
     torch.manual_seed(config["seed"])
     os.environ["PYTHONHASHSEED"] = str(config["seed"])
 
-    torch.cuda.manual_seed_all(config["seed"])
-    torch.backends.cudnn.deterministic = True
-    torch.cuda.set_device(options_cfg["device"])
+    if options_cfg["cuda"]:
+        torch.cuda.manual_seed_all(config["seed"])
+        torch.backends.cudnn.deterministic = True
+        torch.cuda.set_device(options_cfg["device"])
 
     # Fetch the test set
     dataset = {}
@@ -219,36 +224,48 @@ if __name__ == "__main__":
     model_cfg["input_length"] = len(x)
     model_cfg["output_length"] = len(y)
     model = JetSubstructureNeqModel(model_cfg)
-    model.cuda()
+    if options_cfg["cuda"]:
+        model.cuda()
 
     # Load the model weights
-    checkpoint = torch.load(
-        options_cfg["checkpoint"], map_location="cuda:{}".format(options_cfg["device"])
-    )
+    checkpoint = torch.load(options_cfg["checkpoint"], map_location="cuda:{}".format(options_cfg["device"]) if options_cfg["cuda"] else "cpu")
     model.load_state_dict(checkpoint["model_dict"])
 
     # Test the PyTorch model
     print("Running inference on baseline model...")
-    baseline_accuracy = test(model, test_loader, cuda=True)
+    baseline_accuracy = test(model, test_loader, cuda=options_cfg["cuda"])
     print("Baseline accuracy: %f" % (baseline_accuracy))
+
+    lut_model = JetSubstructureLutModel(model_cfg)
+    if options_cfg["cuda"]:
+        lut_model.cuda()
+    lut_model.load_state_dict(checkpoint['model_dict'])
 
     # Generate the truth tables in the LUT module
     print("Converting to NEQs to LUTs...")
-    generate_truth_tables(model, verbose=True)
+    generate_truth_tables(lut_model, verbose=True)
 
     # Test the LUT-based model
     print("Running inference on LUT-based model...")
-    lut_inference(model)
-    lut_accuracy = test(model, test_loader, cuda=True)
+    lut_inference(lut_model)
+    lut_accuracy = test(lut_model, test_loader, cuda=options_cfg["cuda"])
     print("LUT-Based Model accuracy: %f" % (lut_accuracy))
-    modelSave = {"model_dict": model.state_dict(), "test_accuracy": lut_accuracy}
+    modelSave = {"model_dict": lut_model.state_dict(), "test_accuracy": lut_accuracy}
 
     torch.save(modelSave, options_cfg["log_dir"] + "/lut_based_model.pth")
     print("Generating verilog in %s..." % (options_cfg["log_dir"]))
     module_list_to_verilog_module(
-        model.module_list,
+        lut_model.module_list,
         "neuralut",
         options_cfg["log_dir"],
         add_registers=options_cfg["add_registers"],
     )
     print("Top level entity stored at: %s/neuralut.v ..." % (options_cfg["log_dir"]))
+
+    io_filename = None
+
+    print("Running inference simulation of Verilog-based model...")
+    lut_model.verilog_inference(options_cfg["log_dir"], "neuralut.v", logfile=io_filename, add_registers=options_cfg["add_registers"])
+    print("Testing Verilog-Based Model")
+    verilog_accuracy = test(lut_model, test_loader, cuda=options_cfg["cuda"])
+    print("Verilog-Based Model accuracy: %f" % (verilog_accuracy))

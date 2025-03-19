@@ -150,6 +150,7 @@ class SparseLinearNeq(nn.Module):
         width_n,
         apply_input_quant=True,
         apply_output_quant=True,
+        cuda=False,
     ) -> None:
         super(SparseLinearNeq, self).__init__()
         self.in_features = in_features
@@ -172,6 +173,7 @@ class SparseLinearNeq(nn.Module):
         self.neuron_truth_tables = None
         self.apply_input_quant = apply_input_quant
         self.apply_output_quant = apply_output_quant
+        self.cuda = cuda
 
     # TODO: Move the verilog string templates to elsewhere
     # TODO: Move this to another class
@@ -229,8 +231,8 @@ class SparseLinearNeq(nn.Module):
             entry_str = ""
             for idx in range(len(indices)):
                 val = input_perm_matrix[i, idx]
-                entry_str += self.input_quant.get_bin_str(val)
-            res_str = self.output_quant.get_bin_str(bin_output_states[i])
+                entry_str += self.input_quant.get_bin_str_from_int(val, is_cuda=self.cuda)
+            res_str = self.output_quant.get_bin_str_from_int(bin_output_states[i], is_cuda=self.cuda)
             lut_string += f"\t\t\t{int(cat_input_bitwidth)}'b{entry_str}: M1r = {int(output_bitwidth)}'b{res_str};\n"
         return generate_lut_verilog(
             module_name, int(cat_input_bitwidth), int(output_bitwidth), lut_string
@@ -253,7 +255,7 @@ class SparseLinearNeq(nn.Module):
         # Sort the input_perm_matrix to match the bench format
         input_state_space_bin_str = list(
             map(
-                lambda y: list(map(lambda z: self.input_quant.get_bin_str(z), y)),
+                lambda y: list(map(lambda z: self.input_quant.get_bin_str_from_int(z, is_cuda=self.cuda), y)),
                 input_perm_matrix,
             )
         )
@@ -266,7 +268,7 @@ class SparseLinearNeq(nn.Module):
             output_bin_str = reduce(
                 lambda b, c: b + c,
                 map(
-                    lambda a: self.output_quant.get_bin_str(a)[
+                    lambda a: self.output_quant.get_bin_str_from_int(a, is_cuda=self.cuda)[
                         int(output_bitwidth) - 1 - i
                     ],
                     sorted_bin_output_states,
@@ -297,10 +299,14 @@ class SparseLinearNeq(nn.Module):
         bin_output_states: Tensor,
     ) -> Tensor:
         fan_in_size = self.fan_in
-        ci_bcast = connected_input.unsqueeze(2).cuda()  # Reshape to B x Fan-in x 1
+        ci_bcast = connected_input.unsqueeze(2)  # Reshape to B x Fan-in x 1
+        if self.cuda:
+            ci_bcast = ci_bcast.cuda()
         pm_bcast = (
-            input_perm_matrix.t().unsqueeze(0).cuda()
+            input_perm_matrix.t().unsqueeze(0)
         )  # Reshape to 1 x Fan-in x InputStates
+        if self.cuda:
+            pm_bcast = pm_bcast.cuda()
         eq = (ci_bcast == pm_bcast).sum(
             dim=1
         ) == fan_in_size  # Create a boolean matrix which matches input vectors to possible input states
@@ -313,12 +319,15 @@ class SparseLinearNeq(nn.Module):
         return bin_output_states[indices]
 
     def lut_forward(self, x: Tensor) -> Tensor:
+        if self.cuda:
+            x = x.cuda()
         if self.apply_input_quant:
             x = self.input_quant(
                 x
             )  # Use this to fetch the bin output of the input, if the input isn't already in binary format
-        x.cuda()
-        y = torch.zeros((x.shape[0], self.out_features)).cuda()
+        y = torch.zeros((x.shape[0], self.out_features))
+        if self.cuda:
+            y = y.cuda()
         # Perform table lookup for each neuron output
         for i in range(self.out_features):
             (
@@ -327,7 +336,8 @@ class SparseLinearNeq(nn.Module):
                 float_output_states,
                 bin_output_states,
             ) = self.neuron_truth_tables[i]
-            indices.cuda()
+            if self.cuda:
+                indices = indices.cuda()
             connected_input = x[:, indices]
             step = 64
             y[:, i] = self.table_lookup(
@@ -341,7 +351,7 @@ class SparseLinearNeq(nn.Module):
         else:
             if self.apply_input_quant:
                 x = self.input_quant(x)
-            x = x[:, self.imask]
+            x = x[:, self.imask()]
             x = x.repeat(1,1,self.width_n).reshape(x.size(0), x.size(1)*self.width_n, self.fan_in)
             residual0 = self.res0(x)
             x = self.fc1(x)
@@ -396,10 +406,10 @@ class SparseLinearNeq(nn.Module):
             input_state_space = list()  # TODO: is a list the right data-structure here?
             bin_state_space = list()
             neuron_state_space = (
-                self.input_quant.get_state_space()
+                self.input_quant.get_state_space(is_cuda=self.cuda)
             )  # TODO: this call should include the index of the element of interest
             bin_space = (
-                self.input_quant.get_bin_state_space()
+                self.input_quant.get_bin_state_space(is_cuda=self.cuda)
             )  # TODO: this call should include the index of the element of interest
             input_state_space.append(neuron_state_space)
             bin_state_space.append(bin_space)
@@ -410,10 +420,12 @@ class SparseLinearNeq(nn.Module):
             bin_connected_state_space = [bin_state_space[0] for i in range(self.fan_in)]
             # Generate a matrix containing all possible input states
             input_permutation_matrix = generate_permutation_matrix(
-                connected_state_space
-            ).cuda()  # matrix of all input combinations
+                connected_state_space, self.cuda
+            )  # matrix of all input combinations
+            if self.cuda:
+                input_permutation_matrix = input_permutation_matrix.cuda()
             bin_input_permutation_matrix = generate_permutation_matrix(
-                bin_connected_state_space
+                bin_connected_state_space, self.cuda
             )
 
             # TODO: Update this block to just run inference on the fc layer, once BN has been moved to output_quant
@@ -465,7 +477,7 @@ class SparseLinearNeq(nn.Module):
                 # Append the connectivity, input permutations and output permutations to the neuron truth tables
                 neuron_truth_tables.append(
                     (
-                        self.imask[n],
+                        self.imask()[n],
                         bin_input_permutation_matrix,
                         output_states[:, n],
                         bin_output_states[:, n],
@@ -474,12 +486,26 @@ class SparseLinearNeq(nn.Module):
         self.neuron_truth_tables = neuron_truth_tables
 
 
-def FeatureMask(in_features: int, out_features: int, fan_in: int):
-    imask = torch.zeros((out_features, fan_in), dtype=torch.long).cuda()
-    for i in range(out_features):
-        imask[i, :] = torch.randperm(in_features)[:fan_in]
-        imask = torch.sort(imask, 1).values
-    return imask
+
+class FeatureMask(nn.Module):
+    def __init__(self, in_features: int, out_features: int, fan_in: int, cuda: bool):
+        super(FeatureMask, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.fan_in = fan_in
+        if cuda:
+            self.register_buffer('imask', torch.zeros((self.out_features, self.fan_in)).long().cuda(), persistent=True)
+        else:
+            self.register_buffer('imask', torch.zeros((self.out_features, self.fan_in)).long(), persistent=True)
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        for i in range(self.out_features):
+            self.imask[i, :] = torch.randperm(self.in_features)[:self.fan_in]
+            self.imask = torch.sort(self.imask, 1).values
+
+    def forward(self):
+        return self.imask
 
 
 class ScalarScaleBias(nn.Module):

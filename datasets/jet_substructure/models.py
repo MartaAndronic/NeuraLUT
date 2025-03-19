@@ -44,6 +44,7 @@ class JetSubstructureNeqModel(nn.Module):
     def __init__(self, model_config):
         super(JetSubstructureNeqModel, self).__init__()
         self.model_config = model_config
+        self.is_cuda = model_config["cuda"]
         self.num_neurons = (
             [model_config["input_length"]]
             + model_config["hidden_layers"]
@@ -80,6 +81,7 @@ class JetSubstructureNeqModel(nn.Module):
                     in_features,
                     out_features,
                     fan_in=model_config["input_fanin"],
+                    cuda=model_config["cuda"],
                 )
                 layer = SparseLinearNeq(
                     in_features,
@@ -89,6 +91,7 @@ class JetSubstructureNeqModel(nn.Module):
                     imask=imask,
                     fan_in=model_config["input_fanin"],
                     width_n=model_config["width_n"],
+                    cuda=model_config["cuda"],
                 )
                 layer_list.append(layer)
             elif i == len(self.num_neurons) - 1:
@@ -108,6 +111,7 @@ class JetSubstructureNeqModel(nn.Module):
                     in_features,
                     out_features,
                     fan_in=model_config["output_fanin"],
+                    cuda=model_config["cuda"],
                 )
                 layer = SparseLinearNeq(
                     in_features,
@@ -118,6 +122,7 @@ class JetSubstructureNeqModel(nn.Module):
                     fan_in=model_config["output_fanin"],
                     width_n=model_config["width_n"],
                     apply_input_quant=False,
+                    cuda=model_config["cuda"],
                 )
                 layer_list.append(layer)
             else:
@@ -134,6 +139,7 @@ class JetSubstructureNeqModel(nn.Module):
                     in_features,
                     out_features,
                     fan_in=model_config["hidden_fanin"],
+                    cuda=model_config["cuda"],
                 )
                 layer = SparseLinearNeq(
                     in_features,
@@ -144,6 +150,7 @@ class JetSubstructureNeqModel(nn.Module):
                     fan_in=model_config["hidden_fanin"],
                     width_n=model_config["width_n"],
                     apply_input_quant=False,
+                    cuda=model_config["cuda"],
                 )
                 layer_list.append(layer)
         self.module_list = nn.ModuleList(layer_list)
@@ -195,13 +202,12 @@ class JetSubstructureNeqModel(nn.Module):
         for i in range(x.shape[0]):
             x_i = x[i, :]
             y_i = self.pytorch_forward(x[i : i + 1, :])[0]
-            xv_i = list(map(lambda z: input_quant.get_bin_str(z), x_i))
-            ys_i = list(map(lambda z: output_quant.get_bin_str(z), y_i))
+            xv_i = list(map(lambda z: input_quant.get_bin_str_from_int(z, self.is_cuda), x_i))
+            ys_i = list(map(lambda z: output_quant.get_bin_str_from_int(z, self.is_cuda), y_i))
             xvc_i = reduce(lambda a, b: a + b, xv_i[::-1])
             ysc_i = reduce(lambda a, b: a + b, ys_i[::-1])
             self.dut["M0"] = int(xvc_i, 2)
             for j in range(self.latency + 1):
-                # print(self.dut.io.M5)
                 res = self.dut[f"M{num_layers}"]
                 result = f"{res:0{int(total_output_bits)}b}"
                 self.dut.io.clk = 1
@@ -232,7 +238,7 @@ class JetSubstructureNeqModel(nn.Module):
         if self.is_verilog_inference:
             return self.verilog_forward(x)
         else:
-            return self.pytorch_forward(x)
+            return self.pytorch_forward(x)  
 
 
 class JetSubstructureLutModel(JetSubstructureNeqModel):

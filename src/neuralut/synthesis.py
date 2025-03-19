@@ -26,10 +26,11 @@ def synthesize_and_get_resource_counts(verilog_dir, top_name, fpga_part = "xcku3
     # ensure that vivado is in PATH: source $VIVADO_PATH/settings64.sh
     if which("vivado") is None:
         raise Exception("vivado is not in PATH, ensure settings64.sh is sourced.")
+    abs_verilog_dir = os.path.abspath(verilog_dir)
     omx_path = os.environ["OHMYXILINX"]
     script = "vivadocompile.sh"
     # vivadocompile.sh <top-level-entity> <clock-name (optional)> <fpga-part (optional)>
-    call_omx = "zsh %s/%s %s %s %s %f %s" % (omx_path, script, top_name, clk_name, fpga_part, float(clk_period_ns), post_synthesis)
+    call_omx = "zsh %s/%s %s %s %s %f %s %s" % (omx_path, script, top_name, clk_name, fpga_part, float(clk_period_ns), post_synthesis, abs_verilog_dir)
     call_omx = call_omx.split()
     proc = subprocess.Popen(call_omx, cwd=verilog_dir, stdout=subprocess.PIPE, env=os.environ)
     proc.communicate()
@@ -53,5 +54,5 @@ def synthesize_and_get_resource_counts(verilog_dir, top_name, fpga_part = "xcku3
     if ret["WNS"] == 0:
         ret["fmax_mhz"] = 0
     else:
-        ret["fmax_mhz"] = 1000.0 / (clk_period_ns - ret["WNS"])
+        ret["fmax_mhz"] = 1000.0 / (float(clk_period_ns) - ret["WNS"])
     return ret

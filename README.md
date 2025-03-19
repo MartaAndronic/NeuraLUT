@@ -30,6 +30,12 @@ pip install .
 pip install wandb
 wandb.login()
 ```
+## Install Vivado
+## Install oh-my-xilinx
+```
+git clone https://github.com/ollycassidy13/oh-my-xilinx.git /path/to/local/dir
+export OHMYXILINX=/path/to/local/dir
+```
 ## Summary of major modifications from LogicNets
 * We present a novel way of designing deep NNs with specific sparsity patterns that resemble sparsely connected dense partitions, enabling the encapsulation of sub-networks
 entirely within a single LUT. We enhance the training by integrating skip-connections
@@ -46,12 +52,13 @@ promoting stable and efficient learning.
 ## Citation
 Should you find this work valuable, we kindly request that you consider referencing our paper as below:
 ```
-@misc{andronic2024neuralut,
-      title={NeuraLUT: Hiding Neural Network Density in Boolean Synthesizable Functions}, 
-      author={Marta Andronic and George A. Constantinides},
-      year={2024},
-      eprint={2403.00849},
-      archivePrefix={arXiv},
-      primaryClass={cs.AR}
+@inproceedings{andronic2024neuralut,
+	author	= "Andronic, Marta and Constantinides, George A.",
+	title		= "{NeuraLUT: Hiding Neural Network Density in Boolean Synthesizable Functions}",
+	booktitle	= "{2024 34th International Conference on Field-Programmable Logic and Applications (FPL)}",
+	pages		= "140-148",
+	publisher	= "IEEE",
+	year		= 2024,
+	note		= "doi: 10.1109/FPL64840.2024.00028"
 }
 ```

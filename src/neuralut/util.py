@@ -39,14 +39,16 @@ def fetch_mask_indices(mask: torch.Tensor) -> torch.LongTensor:
 
 # Return a matrix which contains all input permutations
 # TODO: implement this function
-def generate_permutation_matrix(input_state_space) -> torch.Tensor:
+def generate_permutation_matrix(input_state_space, is_cuda) -> torch.Tensor:
     total_permutations = reduce(
         lambda a, b: a * b, map(lambda x: x.nelement(), input_state_space)
     )  # Calculate the total number of permutations
     fan_in = len(input_state_space)
     permutations_matrix = torch.zeros(
         (total_permutations, fan_in), dtype=torch.float16
-    ).cuda()
+    )
+    if is_cuda:
+        permutations_matrix.cuda()
     # TODO: is there a way to do this that is vectorised?
     for p in range(total_permutations):
         next_perm = p
