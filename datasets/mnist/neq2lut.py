@@ -260,3 +260,7 @@ if __name__ == "__main__":
     print("Testing Verilog-Based Model")
     verilog_accuracy = test(lut_model, test_loader, cuda=options_cfg["cuda"])
     print("Verilog-Based Model accuracy: %f" % (verilog_accuracy))
+
+    print("Running out-of-context synthesis")
+    ret = synthesize_and_get_resource_counts(options_cfg["log_dir"], "neuralut", fpga_part='xcvu9p-flgb2104-2-i', clk_period_ns='1.1', post_synthesis=1)
+    print("Max f: " + str(ret))

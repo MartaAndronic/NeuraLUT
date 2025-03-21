@@ -105,7 +105,7 @@ def module_list_to_verilog_module(
             )
         else:
             raise Exception(
-                f"Expect type(module) == SparseLinearNeq, {type(module)} found"
+                f"Expect type(module) == SparseLinearNeq, {type(m)} found"
             )
     module_list_verilog = generate_logicnets_verilog(
         module_name=module_name,
