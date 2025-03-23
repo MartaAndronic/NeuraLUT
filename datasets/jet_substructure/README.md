@@ -10,24 +10,25 @@ wget https://cernbox.cern.ch/index.php/s/jvFd5MoWhGs1l5v/download -O data/proces
 ```
 
 ```
-python train.py --arch jsc-2l --log_dir jsc-2l
-python neq2lut.py --arch jsc-2l --checkpoint ./test_jsc-2l/best_accuracy.pth --log-dir ./test_jsc-2l/verilog/ --add-registers --seed 8766 --device 1
+python train.py --arch jsc-2l --log_dir jsc-2l --cuda
+python neq2lut.py --arch jsc-2l --checkpoint ./test_jsc-2l/best_accuracy.pth --log-dir ./test_jsc-2l/verilog/ --add-registers --seed 8766 --device 1 --cuda
 ```
 ```
-python train.py --arch jsc-5l --log_dir jsc-5l
-python neq2lut.py --arch jsc-5l --checkpoint ./test_jsc-5l/best_accuracy.pth --log-dir ./test_jsc-5l/verilog/ --add-registers --seed 312846 --device 1
+python train.py --arch jsc-5l --log_dir jsc-5l --cuda
+python neq2lut.py --arch jsc-5l --checkpoint ./test_jsc-5l/best_accuracy.pth --log-dir ./test_jsc-5l/verilog/ --add-registers --seed 312846 --device 1 --cuda
 ```
 
 
 ## Citation
 Should you find this work valuable, we kindly request that you consider referencing our paper as below:
 ```
-@misc{andronic2024neuralut,
-      title={NeuraLUT: Hiding Neural Network Density in Boolean Synthesizable Functions}, 
-      author={Marta Andronic and George A. Constantinides},
-      year={2024},
-      eprint={2403.00849},
-      archivePrefix={arXiv},
-      primaryClass={cs.AR}
+@inproceedings{andronic2024neuralut,
+	author	= "Andronic, Marta and Constantinides, George A.",
+	title		= "{NeuraLUT: Hiding Neural Network Density in Boolean Synthesizable Functions}",
+	booktitle	= "{2024 34th International Conference on Field-Programmable Logic and Applications (FPL)}",
+	pages		= "140-148",
+	publisher	= "IEEE",
+	year		= 2024,
+	note		= "doi: 10.1109/FPL64840.2024.00028"
 }
 ```

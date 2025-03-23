@@ -16,9 +16,10 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-
+import math
 import torch
 import torch.nn as nn
+from torch import Tensor
 
 from brevitas.core.quant import QuantType
 from brevitas.core.quant import RescalingIntQuant, ClampedBinaryQuant
@@ -26,14 +27,16 @@ from brevitas.core.scaling import ScalingImplType
 import brevitas.nn as bnn
 
 # TODO: Put this inside an abstract base class
-def get_int_state_space(bits: int, signed: bool, narrow_range: bool):
+def get_int_state_space(bits: int, signed: bool, narrow_range: bool, is_cuda: bool):
     start = int(
         0 if not signed else (-(2 ** (bits - 1)) + int(narrow_range))
     )  # calculate the minimum value in the range
     end = int(
         start + 2 ** (bits) - int(narrow_range)
     )  # calculate the maximum of the range
-    state_space = torch.as_tensor(range(start, end)).cuda()
+    state_space = torch.as_tensor(range(start, end))
+    if is_cuda:
+        return state_space.cuda()
     return state_space
 
 
@@ -44,11 +47,14 @@ def get_float_state_space(
     signed: bool,
     narrow_range: bool,
     quant_type: QuantType,
+    is_cuda: bool,
 ):
     if quant_type == QuantType.INT:
-        bin_state_space = get_int_state_space(bits, signed, narrow_range)
+        bin_state_space = get_int_state_space(bits, signed, narrow_range, is_cuda)
     elif quant_type == QuantType.BINARY:
-        bin_state_space = torch.as_tensor([-1.0, 1.0]).cuda()
+        bin_state_space = torch.as_tensor([-1.0, 1.0])
+    if is_cuda:
+        bin_state_space = bin_state_space.cuda()
     state_space = scale_factor * bin_state_space
     return state_space
 
@@ -66,7 +72,27 @@ class QuantBrevitasActivation(nn.Module):
 
     # TODO: Move to a base class
     # TODO: Move the string templates to verilog.py
-    def get_bin_str(self, x: int):
+
+    def get_bin_str_from_float(self, x, is_cuda):
+        quant_type = self.get_quant_type()
+        _, bits = self.get_scale_factor_bits()
+        if quant_type == QuantType.INT:
+            tensor_quant = (
+                self.brevitas_module.act_quant_proxy.fused_activation_quant_proxy.tensor_quant
+            )
+            narrow_range = tensor_quant.int_quant.narrow_range
+            signed = tensor_quant.int_quant.signed
+            offset = 2 ** (bits - 1) - int(narrow_range) if signed else 0
+            for idx, value in enumerate(self.get_state_space(is_cuda)):
+                if math.isclose(self.get_state_space(is_cuda)[idx],x,rel_tol=1e-03):
+                    return f"{int(self.get_bin_state_space(is_cuda)[idx]+offset):0{int(bits)}b}"
+            raise Exception("Value not found in state space")
+        elif quant_type == QuantType.BINARY:
+            return f"{int(x):0{int(bits)}b}"
+        else:
+            raise Exception("Unknown quantization type: {}".format(quant_type))
+
+    def get_bin_str_from_int(self, x, is_cuda):
         quant_type = self.get_quant_type()
         scale_factor, bits = self.get_scale_factor_bits()
         if quant_type == QuantType.INT:
@@ -76,6 +102,8 @@ class QuantBrevitasActivation(nn.Module):
             narrow_range = tensor_quant.int_quant.narrow_range
             signed = tensor_quant.int_quant.signed
             offset = 2 ** (bits - 1) - int(narrow_range) if signed else 0
+            if int(x) - x != 0:
+                raise Exception("Value is not an integer, either run lut_inference first or change function to get_bin_str_from_float")
             return f"{int(x+offset):0{int(bits)}b}"
         elif quant_type == QuantType.BINARY:
             return f"{int(x):0{int(bits)}b}"
@@ -94,7 +122,6 @@ class QuantBrevitasActivation(nn.Module):
         brevitas_module_type = type(
             self.brevitas_module.act_quant_proxy.fused_activation_quant_proxy.tensor_quant
         )
-        # print(brevitas_quant_type)
         if brevitas_module_type == RescalingIntQuant:
             return QuantType.INT
         elif brevitas_module_type == ClampedBinaryQuant:
@@ -119,7 +146,7 @@ class QuantBrevitasActivation(nn.Module):
     # Return a floating point version of the state space, this return values
     # that PyTorch would see at the output of this layer during training.
     # TODO: Merge this function with 'get_bin_state_space' and remove duplicated code.
-    def get_state_space(self):
+    def get_state_space(self, is_cuda):
         quant_type = self.get_quant_type()
         scale_factor, bits = self.get_scale_factor_bits()
         if quant_type == QuantType.INT:
@@ -129,7 +156,7 @@ class QuantBrevitasActivation(nn.Module):
             narrow_range = tensor_quant.int_quant.narrow_range
             signed = tensor_quant.int_quant.signed
             state_space = get_float_state_space(
-                bits, scale_factor, signed, narrow_range, quant_type
+                bits, scale_factor, signed, narrow_range, quant_type, is_cuda
             )
         elif quant_type == QuantType.BINARY:
             state_space = scale_factor * torch.tensor([-1, 1])
@@ -139,7 +166,7 @@ class QuantBrevitasActivation(nn.Module):
 
     # Return the underlying binary representation of the values returned by
     # 'get_state_space'
-    def get_bin_state_space(self):
+    def get_bin_state_space(self, is_cuda):
         quant_type = self.get_quant_type()
         _, bits = self.get_scale_factor_bits()
         if quant_type == QuantType.INT:
@@ -148,7 +175,7 @@ class QuantBrevitasActivation(nn.Module):
             )
             narrow_range = tensor_quant.int_quant.narrow_range
             signed = tensor_quant.int_quant.signed
-            state_space = get_int_state_space(bits, signed, narrow_range)
+            state_space = get_int_state_space(bits, signed, narrow_range, is_cuda)
         elif quant_type == QuantType.BINARY:
             state_space = torch.tensor([0, 1])
         else:

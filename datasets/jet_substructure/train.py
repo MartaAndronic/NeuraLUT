@@ -190,7 +190,7 @@ def train(model, datasets, train_cfg, options):
         test_accuracy = test(model, test_loader, options["cuda"])
         modelSave = {
             "model_dict": model.state_dict(),
-            "optim_dict": optimizer.state_dict(),  # add optimizer1
+            "optim_dict": optimizer.state_dict(),
             "val_accuracy": val_accuracy,
             "test_accuracy": test_accuracy,
             "epoch": epoch,
@@ -220,6 +220,8 @@ def test(model, dataset_loader, cuda):
         output = model(data)
         pred = output.detach().max(1, keepdim=True)[1]
         target_label = torch.max(target.detach(), 1, keepdim=True)[1]
+        if cuda:
+            pred = pred.cuda()
         curCorrect = pred.eq(target_label).long().sum()
         curAcc = 100.0 * curCorrect / len(data)
         correct += curCorrect
@@ -268,7 +270,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--cuda",
         action="store_true",
-        default=True,
+        default=False,
         help="Train on a GPU (default: %(default)s)",
     )
     parser.add_argument(
@@ -395,6 +397,7 @@ if __name__ == "__main__":
     options_cfg = {}
     for k in other_options.keys():
         options_cfg[k] = config[k]
+    model_cfg["cuda"] = options_cfg["cuda"]
 
     # Set random seeds
     random.seed(train_cfg["seed"])

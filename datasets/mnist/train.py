@@ -236,6 +236,8 @@ def test(model, dataset_loader, cuda):
         target = torch.nn.functional.one_hot(target, num_classes=10)
         output = model(data)
         pred = output.detach().max(1, keepdim=True)[1]
+        if cuda:
+            pred = pred.cuda()
         target_label = torch.max(target.detach(), 1, keepdim=True)[1]
         curCorrect = pred.eq(target_label).long().sum()
         curAcc = 100.0 * curCorrect / len(data)
@@ -285,7 +287,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--cuda",
         action="store_true",
-        default=True,
+        default=False,
         help="Train on a GPU (default: %(default)s)",
     )
     parser.add_argument(
@@ -382,7 +384,7 @@ if __name__ == "__main__":
         config[k] = (
             options[k] if options[k] is not None else defaults[k]
         )  # Override defaults, if specified.
-
+    
     if not os.path.exists("test_" + config["log_dir"]):
         os.makedirs("test_" + config["log_dir"])
 
@@ -396,7 +398,7 @@ if __name__ == "__main__":
     options_cfg = {}
     for k in other_options.keys():
         options_cfg[k] = config[k]
-
+    model_cfg["cuda"] = options_cfg["cuda"]
     # Set random seeds
     random.seed(train_cfg["seed"])
     np.random.seed(train_cfg["seed"])

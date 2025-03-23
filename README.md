@@ -1,7 +1,7 @@
 # NeuraLUT
-NeuraLUT: Hiding Neural Network Density in Boolean Synthesizable Functions
+[NeuraLUT: Hiding Neural Network Density in Boolean Synthesizable Functions](https://arxiv.org/abs/2403.00849)
 
-NeuraLUT is the first quantized neural network training methodology that maps dense and full-precision sub-networks with skip-connections to LUTs to leverage the underlying structure of the FPGA architecture. This project is a derivative work based on LogicNets (https://github.com/Xilinx/logicnets) which is licensed under the Apache License 2.0.
+NeuraLUT is the first quantized neural network training methodology that maps dense and full-precision sub-networks with skip-connections to LUTs to leverage the underlying structure of the FPGA architecture. This project is a derivative work based on LogicNets (https://github.com/Xilinx/logicnets) which is licensed under the Apache License 2.0. This code is part of a publication from the International Conference on Field-Programmable Logic and Applications 2024 which can be found on [ArXiv](https://arxiv.org/abs/2403.00849).
 
 ## Setup
 **Install Vivado Design Suite**
@@ -20,8 +20,9 @@ conda install -y docrep -c conda-forge
 pip install --no-cache-dir git+https://github.com/Xilinx/brevitas.git@67be9b58c1c63d3923cac430ade2552d0db67ba5
 ```
 
-## Install PolyLUT package
+## Install NeuraLUT package
 ```
+git clone https://github.com/MartaAndronic/NeuraLUT
 cd NeuraLUT
 pip install .
 ```
@@ -29,6 +30,12 @@ pip install .
 ```
 pip install wandb
 wandb.login()
+```
+## Install Vivado
+## Install oh-my-xilinx
+```
+git clone https://github.com/ollycassidy13/oh-my-xilinx /path/to/local/dir
+export OHMYXILINX=/path/to/local/dir
 ```
 ## Summary of major modifications from LogicNets
 * We present a novel way of designing deep NNs with specific sparsity patterns that resemble sparsely connected dense partitions, enabling the encapsulation of sub-networks
@@ -46,12 +53,13 @@ promoting stable and efficient learning.
 ## Citation
 Should you find this work valuable, we kindly request that you consider referencing our paper as below:
 ```
-@misc{andronic2024neuralut,
-      title={NeuraLUT: Hiding Neural Network Density in Boolean Synthesizable Functions}, 
-      author={Marta Andronic and George A. Constantinides},
-      year={2024},
-      eprint={2403.00849},
-      archivePrefix={arXiv},
-      primaryClass={cs.AR}
+@inproceedings{andronic2024neuralut,
+	author	= "Andronic, Marta and Constantinides, George A.",
+	title		= "{NeuraLUT: Hiding Neural Network Density in Boolean Synthesizable Functions}",
+	booktitle	= "{2024 34th International Conference on Field-Programmable Logic and Applications (FPL)}",
+	pages		= "140-148",
+	publisher	= "IEEE",
+	year		= 2024,
+	note		= "doi: 10.1109/FPL64840.2024.00028"
 }
 ```
