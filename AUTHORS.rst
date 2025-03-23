@@ -25,3 +25,4 @@ Contributors of the derivative work
 ===================================
 
 * Marta Andronic (@MartaAndronic)
+* Oliver Cassidy (@ollycassidy13)

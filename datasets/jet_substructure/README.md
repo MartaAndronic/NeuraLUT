@@ -10,12 +10,12 @@ wget https://cernbox.cern.ch/index.php/s/jvFd5MoWhGs1l5v/download -O data/proces
 ```
 
 ```
-python train.py --arch jsc-2l --log_dir jsc-2l
-python neq2lut.py --arch jsc-2l --checkpoint ./test_jsc-2l/best_accuracy.pth --log-dir ./test_jsc-2l/verilog/ --add-registers --seed 8766 --device 1
+python train.py --arch jsc-2l --log_dir jsc-2l --cuda
+python neq2lut.py --arch jsc-2l --checkpoint ./test_jsc-2l/best_accuracy.pth --log-dir ./test_jsc-2l/verilog/ --add-registers --seed 8766 --device 1 --cuda
 ```
 ```
-python train.py --arch jsc-5l --log_dir jsc-5l
-python neq2lut.py --arch jsc-5l --checkpoint ./test_jsc-5l/best_accuracy.pth --log-dir ./test_jsc-5l/verilog/ --add-registers --seed 312846 --device 1
+python train.py --arch jsc-5l --log_dir jsc-5l --cuda
+python neq2lut.py --arch jsc-5l --checkpoint ./test_jsc-5l/best_accuracy.pth --log-dir ./test_jsc-5l/verilog/ --add-registers --seed 312846 --device 1 --cuda
 ```
 
 
