@@ -78,3 +78,6 @@ datasets/jet_substructure/wandb
 datasets/mnist/wandb
 
 datasets/jet_substructure/data/*
+
+ReducedLUT
+build

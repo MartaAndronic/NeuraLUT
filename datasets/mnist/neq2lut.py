@@ -29,7 +29,16 @@ from torchvision import datasets, transforms
 from neuralut.nn import (
     generate_truth_tables,
     lut_inference,
+    logging_inference,
+    flush_logs,
     module_list_to_verilog_module,
+)
+
+from neuralut.reducedlut import (
+    convert_verilog_to_hex,
+    remove_verilog_luts,
+    run_reducedlut,
+    tidy,
 )
 
 from train import configs, model_config, test
@@ -42,7 +51,10 @@ other_options = {
     "device": 1,
     "log_dir": None,
     "checkpoint": None,
-    "add_registers": False
+    "add_registers": False,
+    "reducedlut": None,
+    "exiguity": None,
+    "log_bits": None,
 }
 
 if __name__ == "__main__":
@@ -159,8 +171,26 @@ if __name__ == "__main__":
     parser.add_argument(
         "--cuda",
         action="store_true",
-        default=True,
+        default=False,
         help="Train on a GPU (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--reducedlut",
+        action="store_true",
+        default=False,
+        help="Use ReducedLUT (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--exiguity",
+        type=int,
+        default=250,
+        help="Exiguity (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--log_bits",
+        action="store_true",
+        default=False,
+        help="Log ReducedLUT bit compression (default: %(default)s)",
     )
     args = parser.parse_args()
     defaults = configs[args.arch]
@@ -209,6 +239,18 @@ if __name__ == "__main__":
     test_loader = DataLoader(
         dataset[args.dataset_split], batch_size=config["batch_size"], shuffle=False
     )
+    train_loader = DataLoader(
+        datasets.MNIST(
+            "mnist_data",
+            download=False,
+            train=True,
+            transform=transforms.Compose(
+                [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
+            ),
+        ),
+        batch_size=config["batch_size"],
+        shuffle=True,
+    )
 
     # Instantiate the PyTorch model
     model_cfg["input_length"] = 784
@@ -243,6 +285,15 @@ if __name__ == "__main__":
     print("LUT-Based Model accuracy: %f" % (lut_accuracy))
     modelSave = {"model_dict": lut_model.state_dict(), "test_accuracy": lut_accuracy}
 
+    if options_cfg["reducedlut"]:
+        print("Running logging")
+        logging_inference(lut_model)
+        train_accuracy = test(lut_model, train_loader, cuda=options_cfg["cuda"])
+        print("Flushing logs")
+        flush_logs(lut_model, options_cfg["log_dir"])
+        logging_inference(lut_model)
+        print("Logging complete")
+
     torch.save(modelSave, options_cfg["log_dir"] + "/lut_based_model.pth")
     print("Generating verilog in %s..." % (options_cfg["log_dir"]))
     module_list_to_verilog_module(
@@ -253,6 +304,13 @@ if __name__ == "__main__":
     )
     print("Top level entity stored at: %s/neuralut.v ..." % (options_cfg["log_dir"]))
 
+    if options_cfg["reducedlut"]:
+        print("Running ReducedLUT")
+        convert_verilog_to_hex(options_cfg["log_dir"])
+        remove_verilog_luts(options_cfg["log_dir"])
+        run_reducedlut(options_cfg["log_dir"], options_cfg["exiguity"], options_cfg["log_bits"], 1)
+        tidy(options_cfg["log_dir"])
+    
     io_filename = None
 
     print("Running inference simulation of Verilog-based model...")

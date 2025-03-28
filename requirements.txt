@@ -12,6 +12,9 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-torch
-brevitas
-pyverilator
+pyverilator==0.7.0
+numpy==1.26.4
+h5py==3.11.0
+pandas==2.2.2
+scikit-learn==1.5.1
+PyYAML==6.0.1

@@ -55,6 +55,7 @@ class JetSubstructureNeqModel(nn.Module):
             in_features = self.num_neurons[i - 1]
             out_features = self.num_neurons[i]
             bn = nn.BatchNorm1d(out_features)
+            layer_id = i
             if i == 1:
                 bn_in = nn.BatchNorm1d(in_features)
                 input_bias = ScalarBiasScale(scale=False, bias_init=-0.25)
@@ -86,6 +87,7 @@ class JetSubstructureNeqModel(nn.Module):
                 layer = SparseLinearNeq(
                     in_features,
                     out_features,
+                    layer_id=layer_id,
                     input_quant=input_quant,
                     output_quant=output_quant,
                     imask=imask,
@@ -116,6 +118,7 @@ class JetSubstructureNeqModel(nn.Module):
                 layer = SparseLinearNeq(
                     in_features,
                     out_features,
+                    layer_id=layer_id,
                     input_quant=layer_list[-1].output_quant,
                     output_quant=output_quant,
                     imask=imask,
@@ -144,6 +147,7 @@ class JetSubstructureNeqModel(nn.Module):
                 layer = SparseLinearNeq(
                     in_features,
                     out_features,
+                    layer_id=layer_id,
                     input_quant=layer_list[-1].output_quant,
                     output_quant=output_quant,
                     imask=imask,

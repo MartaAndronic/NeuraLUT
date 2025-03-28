@@ -28,6 +28,8 @@ from torch.utils.data import DataLoader
 from neuralut.nn import (
     generate_truth_tables,
     lut_inference,
+    logging_inference,
+    flush_logs,
     module_list_to_verilog_module,
 )
 
@@ -36,13 +38,24 @@ from dataset import JetSubstructureDataset
 from models import JetSubstructureNeqModel, JetSubstructureLutModel
 from neuralut.synthesis import synthesize_and_get_resource_counts
 
+from neuralut.reducedlut import (
+    convert_verilog_to_hex,
+    remove_verilog_luts,
+    run_reducedlut,
+    tidy,
+)
+
 other_options = {
     "seed": 3,
+    "batch_size": 1024,
     "cuda": None,
     "device": 1,
     "log_dir": None,
     "checkpoint": None,
     "add_registers": False,
+    "reducedlut": None,
+    "exiguity": None,
+    "log_bits": None,
 }
 
 if __name__ == "__main__":
@@ -171,8 +184,26 @@ if __name__ == "__main__":
     parser.add_argument(
         "--cuda",
         action="store_true",
-        default=True,
+        default=False,
         help="Train on a GPU (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--reducedlut",
+        action="store_true",
+        default=False,
+        help="Use ReducedLUT (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--exiguity",
+        type=int,
+        default=250,
+        help="Exiguity (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--log_bits",
+        action="store_true",
+        default=False,
+        help="Log ReducedLUT bit compression (default: %(default)s)",
     )
     args = parser.parse_args()
     defaults = configs[args.arch]
@@ -211,13 +242,23 @@ if __name__ == "__main__":
 
     # Fetch the test set
     dataset = {}
-    dataset[args.dataset_split] = JetSubstructureDataset(
-        dataset_cfg["dataset_file"],
-        dataset_cfg["dataset_config"],
-        split=args.dataset_split,
+    dataset["train"] = JetSubstructureDataset(
+        dataset_cfg["dataset_file"], dataset_cfg["dataset_config"], split="train"
+    )
+    dataset["valid"] = JetSubstructureDataset(
+        dataset_cfg["dataset_file"], dataset_cfg["dataset_config"], split="train"
+    )  
+    dataset["test"] = JetSubstructureDataset(
+        dataset_cfg["dataset_file"], dataset_cfg["dataset_config"], split="test"
+    )
+    train_loader = DataLoader(
+        dataset["train"], batch_size=options_cfg["batch_size"], shuffle=True
+    )
+    val_loader = DataLoader(
+        dataset["valid"], batch_size=options_cfg["batch_size"], shuffle=False
     )
     test_loader = DataLoader(
-        dataset[args.dataset_split], batch_size=config["batch_size"], shuffle=False
+        dataset["test"], batch_size=options_cfg["batch_size"], shuffle=False
     )
 
     # Instantiate the PyTorch model
@@ -253,6 +294,16 @@ if __name__ == "__main__":
     print("LUT-Based Model accuracy: %f" % (lut_accuracy))
     modelSave = {"model_dict": lut_model.state_dict(), "test_accuracy": lut_accuracy}
 
+    if options_cfg["reducedlut"]:
+        print("Running logging")
+        logging_inference(lut_model)
+        train_accuracy = test(lut_model, train_loader, cuda=options_cfg["cuda"])
+        # train_accuracy = test(lut_model, test_loader, cuda=options_cfg["cuda"])
+        print("Flushing logs")
+        flush_logs(lut_model, options_cfg["log_dir"])
+        logging_inference(lut_model)
+        print("Logging complete")
+
     torch.save(modelSave, options_cfg["log_dir"] + "/lut_based_model.pth")
     print("Generating verilog in %s..." % (options_cfg["log_dir"]))
     module_list_to_verilog_module(
@@ -262,6 +313,13 @@ if __name__ == "__main__":
         add_registers=options_cfg["add_registers"],
     )
     print("Top level entity stored at: %s/neuralut.v ..." % (options_cfg["log_dir"]))
+
+    if options_cfg["reducedlut"]:
+        print("Running ReducedLUT")
+        convert_verilog_to_hex(options_cfg["log_dir"])
+        remove_verilog_luts(options_cfg["log_dir"])
+        run_reducedlut(options_cfg["log_dir"], options_cfg["exiguity"], options_cfg["log_bits"], 1)
+        tidy(options_cfg["log_dir"])
 
     io_filename = None
 

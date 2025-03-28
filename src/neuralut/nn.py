@@ -70,6 +70,15 @@ def neq_inference(model: nn.Module) -> None:
         if type(module) == SparseLinearNeq:
             module.neq_inference()
 
+def logging_inference(model: nn.Module) -> None:
+    for name, module in model.named_modules():
+        if type(module) == SparseLinearNeq:
+            module.logging_inference()
+
+def flush_logs(model: nn.Module, log_dir) -> None:
+    for name, module in model.named_modules():
+        if type(module) == SparseLinearNeq:
+            module.flush_logs(log_dir)
 
 # TODO: Should this go in with the other verilog functions?
 # TODO: Support non-linear topologies
@@ -143,6 +152,7 @@ class SparseLinearNeq(nn.Module):
         self,
         in_features: int,
         out_features: int,
+        layer_id: int,
         input_quant,
         output_quant,
         imask,
@@ -174,6 +184,10 @@ class SparseLinearNeq(nn.Module):
         self.apply_input_quant = apply_input_quant
         self.apply_output_quant = apply_output_quant
         self.cuda = cuda
+        self.is_logging = False
+        self.layer_id = layer_id
+        self.log_dir = None
+        self.neuron_logs = {}
 
     # TODO: Move the verilog string templates to elsewhere
     # TODO: Move this to another class
@@ -291,6 +305,37 @@ class SparseLinearNeq(nn.Module):
         self.input_quant.float_output()
         self.output_quant.float_output()
 
+    def logging_inference(self):
+        if not self.is_logging:
+            self.is_logging = True
+            self.neuron_logs = {}
+        else:
+            self.is_logging = False
+            self.neuron_logs = {}
+
+    def flush_logs(self, log_dir):
+        self.log_dir = f"{log_dir}/neuron_logs"
+        os.makedirs(self.log_dir, exist_ok=True)
+
+        def flatten_log_entry(entry):
+            if isinstance(entry, list) and entry:
+                if isinstance(entry[0], list):
+                    return "\n".join("".join(subentry) for subentry in entry)
+                else:
+                    return "".join(entry)
+            return entry
+
+        for neuron_name, logs in self.neuron_logs.items():
+            file_path = os.path.join(self.log_dir, f"layer{self.layer_id - 1}_N{neuron_name}_input.txt")
+            formatted_logs = [
+                flatten_log_entry(entry) if isinstance(entry, list) else entry
+                for entry in logs
+            ]
+            with open(file_path, "w") as f:
+                f.write("\n".join(formatted_logs))
+            print(f"Logged {len(formatted_logs)} entries for {neuron_name} to {file_path}")
+
+
     # TODO: This function might be a useful utility outside of this class..
     def table_lookup(
         self,
@@ -317,32 +362,38 @@ class SparseLinearNeq(nn.Module):
             )
         indices = torch.argmax(eq.type(torch.int64), dim=1)
         return bin_output_states[indices]
-
+    
     def lut_forward(self, x: Tensor) -> Tensor:
         if self.cuda:
             x = x.cuda()
         if self.apply_input_quant:
-            x = self.input_quant(
-                x
-            )  # Use this to fetch the bin output of the input, if the input isn't already in binary format
+            x = self.input_quant(x) 
+
         y = torch.zeros((x.shape[0], self.out_features))
         if self.cuda:
             y = y.cuda()
-        # Perform table lookup for each neuron output
+
         for i in range(self.out_features):
-            (
-                indices,
-                input_perm_matrix,
-                float_output_states,
-                bin_output_states,
-            ) = self.neuron_truth_tables[i]
+            indices, input_perm_matrix, float_output_states, bin_output_states = self.neuron_truth_tables[i]
             if self.cuda:
                 indices = indices.cuda()
             connected_input = x[:, indices]
-            step = 64
-            y[:, i] = self.table_lookup(
-                connected_input, input_perm_matrix, bin_output_states
-            )
+
+            if self.is_logging:
+                neuron_log_entry = []
+                for sample in connected_input:
+                    sample_bin = [
+                        self.input_quant.get_bin_str_from_int(val.item(), self.cuda)
+                        for val in sample
+                    ]
+                    neuron_log_entry.append(sample_bin)
+
+                if i not in self.neuron_logs:
+                    self.neuron_logs[i] = []
+                self.neuron_logs[i].append(neuron_log_entry)
+
+            y[:, i] = self.table_lookup(connected_input, input_perm_matrix, bin_output_states)
+        
         return y
 
     def forward(self, x: Tensor) -> Tensor:
