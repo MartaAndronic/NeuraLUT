@@ -25,7 +25,7 @@ import random
 import numpy as np
 from torch.utils.data import DataLoader
 
-from neuralut.nn import (
+from reducedlut.nn import (
     generate_truth_tables,
     lut_inference,
     logging_inference,
@@ -36,9 +36,9 @@ from neuralut.nn import (
 from train import configs, model_config, dataset_config, test
 from dataset import JetSubstructureDataset
 from models import JetSubstructureNeqModel, JetSubstructureLutModel
-from neuralut.synthesis import synthesize_and_get_resource_counts
+from reducedlut.synthesis import synthesize_and_get_resource_counts
 
-from neuralut.reducedlut import (
+from reducedlut.reducedlut import (
     convert_verilog_to_hex,
     remove_verilog_luts,
     run_reducedlut,

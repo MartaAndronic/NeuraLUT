@@ -31,13 +31,13 @@ from brevitas.nn import QuantHardTanh, QuantReLU
 
 from pyverilator import PyVerilator
 
-from neuralut.quant import QuantBrevitasActivation
-from neuralut.nn import (
+from reducedlut.quant import QuantBrevitasActivation
+from reducedlut.nn import (
     SparseLinearNeq,
     ScalarBiasScale,
     FeatureMask,
 )
-from neuralut.init import random_restrict_fanin
+from reducedlut.init import random_restrict_fanin
 
 
 class JetSubstructureNeqModel(nn.Module):

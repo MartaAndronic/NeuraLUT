@@ -43,6 +43,6 @@ except VersionConflict:
 
 
 if __name__ == "__main__":
-    setup(name = "neuralut",
+    setup(name = "reducedlut",
 
     version = "1.0.0")

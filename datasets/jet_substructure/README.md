@@ -25,21 +25,17 @@ python neq2lut.py --arch jsc-5l --checkpoint ./test_jsc-5l/best_accuracy.pth --l
 ## 📖 Citation
 Should you find this work valuable, we kindly request that you consider referencing our papers as below:
 ```
-@inproceedings{10.1145/3706628.3708823,
+@inproceedings{reducedlut,
 author = {Cassidy, Oliver and Andronic, Marta and Coward, Samuel and Constantinides, George A.},
-title = {ReducedLUT: Table Decomposition with "Don't Care" Conditions},
+title = "{ReducedLUT: Table Decomposition with ``Don't Care'' Conditions}",
 year = {2025},
 isbn = {9798400713965},
 publisher = {Association for Computing Machinery},
 address = {New York, NY, USA},
-url = {https://doi.org/10.1145/3706628.3708823},
-doi = {10.1145/3706628.3708823},
+note = {doi: 10.1145/3706628.3708823},
 booktitle = {Proceedings of the 2025 ACM/SIGDA International Symposium on Field Programmable Gate Arrays},
 pages = {36–42},
-numpages = {7},
-keywords = {compression, hardware acceleration, lookup table, neural network},
 location = {Monterey, CA, USA},
-series = {FPGA '25}
 }
 ```
 ```

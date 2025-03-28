@@ -26,7 +26,7 @@ import numpy as np
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
-from neuralut.nn import (
+from reducedlut.nn import (
     generate_truth_tables,
     lut_inference,
     logging_inference,
@@ -34,7 +34,7 @@ from neuralut.nn import (
     module_list_to_verilog_module,
 )
 
-from neuralut.reducedlut import (
+from reducedlut.reducedlut import (
     convert_verilog_to_hex,
     remove_verilog_luts,
     run_reducedlut,
@@ -43,7 +43,7 @@ from neuralut.reducedlut import (
 
 from train import configs, model_config, test
 from models import MnistNeqModel, MnistLutModel
-from neuralut.synthesis import synthesize_and_get_resource_counts
+from reducedlut.synthesis import synthesize_and_get_resource_counts
 
 other_options = {
     "seed": 3,
