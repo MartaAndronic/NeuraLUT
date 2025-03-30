@@ -1,17 +1,17 @@
-# 🌟 NeuraLUT: Hiding Neural Network Density in Boolean Synthesizable Functions
+# NeuraLUT: Hiding Neural Network Density in Boolean Synthesizable Functions
 
 [![DOI](https://img.shields.io/badge/DOI-10.1109/FPL64840.2024.00028-orange)](https://doi.org/10.1109/FPL64840.2024.00028)
 [![arXiv](https://img.shields.io/badge/arXiv-2403.00849-b31b1b.svg?style=flat)](https://arxiv.org/abs/2403.00849)
 
-<p align="center">
-  <img src="logo.png" width="300" alt="NeuraLUT Logo">
+<p align="left">
+  <img src="logo.png" width="500" alt="NeuraLUT Logo">
 </p>
 
 NeuraLUT is the first quantized neural network training methodology that maps dense and full-precision sub-networks with skip-connections to LUTs to leverage the underlying structure of the FPGA architecture.
 > _Built on top of [LogicNets](https://github.com/Xilinx/logicnets), NeuraLUT introduces new architecture designs, optimized training flows, and innovative sparsity handling._
 ---
 
-### ✨ ReducedLUT branch available for advanced compression using don't-cares (see below).
+#### ✨ New! ReducedLUT branch available for advanced compression using don't-cares (see below).
 
 ---
 
@@ -87,11 +87,10 @@ export OHMYXILINX=/path/to/local/dir
 
 ---
 
-## 🌿 ReducedLUT Branch
+## 🌿 ReducedLUT
 
-We released a dedicated `ReducedLUT` branch which demonstrates the **L-LUT compression pipeline** described in our [ReducedLUT paper](https://doi.org/10.1145/3706628.3708823). This includes:
-
-➡️ [ReducedLUT repository and artifact](https://github.com/ollycassidy13/ReducedLUT)  
+We released a dedicated [ReducedLUT branch](https://github.com/MartaAndronic/NeuraLUT/tree/reducedlut) which demonstrates the **L-LUT compression pipeline** described in our ReducedLUT paper. This includes:
+ 
 📄 [arXiv](https://arxiv.org/abs/2412.18579) | 📘 [ACM DL](https://dl.acm.org/doi/10.1145/3706628.3708823) | 📦 [Zenodo](https://doi.org/10.5281/zenodo.14499541)
 
 ---
@@ -112,7 +111,7 @@ We released a dedicated `ReducedLUT` branch which demonstrates the **L-LUT compr
 
 ## 📚 Citation
 
-If NeuraLUT contributes to your research or FPGA design, please cite our paper:
+#### If this repo contributes to your research or FPGA design, please cite our NeuraLUT paper:
 
 ```bibtex
 @inproceedings{andronic2024neuralut,
@@ -125,18 +124,19 @@ If NeuraLUT contributes to your research or FPGA design, please cite our paper:
 	note		= "doi: 10.1109/FPL64840.2024.00028"
 }
 ```
+#### If ReducedLUT contributes to your research please also cite:
 ```bibtex
 @inproceedings{reducedlut,
-author = {Cassidy, Oliver and Andronic, Marta and Coward, Samuel and Constantinides, George A.},
-title = "{ReducedLUT: Table Decomposition with ``Don't Care'' Conditions}",
-year = {2025},
-isbn = {9798400713965},
-publisher = {Association for Computing Machinery},
-address = {New York, NY, USA},
-note = "doi: 10.1145/3706628.3708823",
-booktitle = {Proceedings of the 2025 ACM/SIGDA International Symposium on Field Programmable Gate Arrays},
-pages = {36–42},
-location = {Monterey, CA, USA},
+	author = {Cassidy, Oliver and Andronic, Marta and Coward, Samuel and Constantinides, George A.},
+	title = "{ReducedLUT: Table Decomposition with ``Don't Care'' Conditions}",
+	year = {2025},
+	isbn = {9798400713965},
+	publisher = {Association for Computing Machinery},
+	address = {New York, NY, USA},
+	note = "doi: 10.1145/3706628.3708823",
+	booktitle = {Proceedings of the 2025 ACM/SIGDA International Symposium on Field Programmable Gate Arrays},
+	pages = {36–42},
+	location = {Monterey, CA, USA},
 }
 ```
 ---
