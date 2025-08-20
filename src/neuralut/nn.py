@@ -132,11 +132,18 @@ class SparseLinear(nn.Linear):
         super(SparseLinear, self).__init__(
             in_features=in_features, out_features=out_features, bias=bias
         )
+        nn.init.kaiming_uniform_(self.weight, nonlinearity='relu')
 
     def forward(self, input: Tensor) -> Tensor:
         return (input * self.weight).sum(dim=-1) + self.bias
 
+class DenseForward(nn.Linear):
+    def __init__(self, in_features: int, out_features: int, bias: bool = True) -> None:
+        super(DenseForward, self).__init__(in_features=in_features, out_features=out_features, bias=bias)
 
+    def forward(self, input: Tensor) -> Tensor:
+        return F.linear(input, self.weight, self.bias)
+    
 # TODO: Perhaps make this two classes, separating the LUT and NEQ code.
 class SparseLinearNeq(nn.Module):
     def __init__(
@@ -146,6 +153,8 @@ class SparseLinearNeq(nn.Module):
         input_quant,
         output_quant,
         imask,
+        support,
+        dense_forward,
         fan_in,
         width_n,
         apply_input_quant=True,
@@ -159,14 +168,17 @@ class SparseLinearNeq(nn.Module):
         self.imask = imask
         self.fan_in = fan_in
         self.width_n = width_n
+        self.support = support
+        self.dense_forward = dense_forward
 
-        self.relu = nn.ReLU()
+        self.relu = nn.ReLU(inplace=True)
+        if cuda:
+            self.relu = self.relu.cuda()
         self.fc1 = SparseLinear(fan_in, out_features*width_n)
-        self.fc2 = SparseLinear(width_n, out_features*width_n)
-        self.fc3 = SparseLinear(width_n, out_features*width_n)
         self.fc4 = SparseLinear(width_n, out_features)
-        self.res0 = SparseLinear(fan_in, out_features*width_n)
-        self.res1 = SparseLinear(width_n, out_features)
+        self.res2 = SparseLinear(fan_in, out_features)
+        self.fc1_dense = DenseForward(in_features, out_features*width_n)
+        self.res2_dense = DenseForward(in_features, out_features)
 
         self.output_quant = output_quant
         self.is_lut_inference = False
@@ -179,8 +191,8 @@ class SparseLinearNeq(nn.Module):
     # TODO: Move this to another class
     # TODO: Update this code to support custom bitwidths per input/output
     def gen_layer_verilog(self, module_prefix, directory, generate_bench: bool = True):
-        _, input_bitwidth = self.input_quant.get_scale_factor_bits()
-        _, output_bitwidth = self.output_quant.get_scale_factor_bits()
+        _, input_bitwidth = self.input_quant.get_scale_factor_bits(self.cuda)
+        _, output_bitwidth = self.output_quant.get_scale_factor_bits(self.cuda)
         input_bitwidth, output_bitwidth = int(input_bitwidth), int(output_bitwidth)
         total_input_bits = self.in_features * input_bitwidth
         total_output_bits = self.out_features * output_bitwidth
@@ -222,8 +234,8 @@ class SparseLinearNeq(nn.Module):
             float_output_states,
             bin_output_states,
         ) = self.neuron_truth_tables[index]
-        _, input_bitwidth = self.input_quant.get_scale_factor_bits()
-        _, output_bitwidth = self.output_quant.get_scale_factor_bits()
+        _, input_bitwidth = self.input_quant.get_scale_factor_bits(self.cuda)
+        _, output_bitwidth = self.output_quant.get_scale_factor_bits(self.cuda)
         cat_input_bitwidth = len(indices) * input_bitwidth
         lut_string = ""
         num_entries = input_perm_matrix.shape[0]
@@ -247,8 +259,8 @@ class SparseLinearNeq(nn.Module):
             float_output_states,
             bin_output_states,
         ) = self.neuron_truth_tables[index]
-        _, input_bitwidth = self.input_quant.get_scale_factor_bits()
-        _, output_bitwidth = self.output_quant.get_scale_factor_bits()
+        _, input_bitwidth = self.input_quant.get_scale_factor_bits(self.cuda)
+        _, output_bitwidth = self.output_quant.get_scale_factor_bits(self.cuda)
         cat_input_bitwidth = len(indices) * input_bitwidth
         lut_string = ""
         num_entries = input_perm_matrix.shape[0]
@@ -348,23 +360,24 @@ class SparseLinearNeq(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         if self.is_lut_inference:
             x = self.lut_forward(x)
+        elif self.dense_forward:
+            if self.apply_input_quant:
+                x = self.input_quant(x)
+            residual1 = self.res2_dense(x)
+            x = self.fc1_dense(x)
+            x = self.relu(x)
+            x = x.reshape(x.size(0), int(x.size(1)/self.width_n), self.width_n)
+            x = self.fc4(x)
+            x = x + residual1
+            if self.apply_output_quant:
+                x = self.output_quant(x)
         else:
             if self.apply_input_quant:
                 x = self.input_quant(x)
-            x = x[:, self.imask()]
+            x = x[:, self.imask]
+            residual1 = self.res2(x)
             x = x.repeat(1,1,self.width_n).reshape(x.size(0), x.size(1)*self.width_n, self.fan_in)
-            residual0 = self.res0(x)
             x = self.fc1(x)
-            x = self.relu(x)
-            x = x.reshape(x.size(0), int(x.size(1)/self.width_n), self.width_n)
-            x = x.repeat(1,1,self.width_n).reshape(x.size(0), x.size(1)*self.width_n, self.width_n)
-            x = self.fc2(x)
-            x = x + residual0
-            x = self.relu(x)
-            x = x.reshape(x.size(0), int(x.size(1)/self.width_n), self.width_n)
-            residual1 = self.res1(x)
-            x = x.repeat(1,1,self.width_n).reshape(x.size(0), x.size(1)*self.width_n, self.width_n)
-            x = self.fc3(x)
             x = self.relu(x)
             x = x.reshape(x.size(0), int(x.size(1)/self.width_n), self.width_n)
             x = self.fc4(x)
@@ -378,19 +391,9 @@ class SparseLinearNeq(nn.Module):
             x = self.input_quant(x)
         x = x.repeat(1, self.out_features)
         x = x.reshape(x.shape[0], self.out_features, self.fan_in)
+        residual1 = self.res2(x)
         x = x.repeat(1,1,self.width_n).reshape(x.size(0), x.size(1)*self.width_n, self.fan_in)
-        residual0 = self.res0(x)
         x = self.fc1(x)
-        x = self.relu(x)
-        x = x.reshape(x.size(0), int(x.size(1)/self.width_n), self.width_n)
-        x = x.repeat(1,1,self.width_n).reshape(x.size(0), x.size(1)*self.width_n, self.width_n)
-        x = self.fc2(x)
-        x = x + residual0
-        x = self.relu(x)
-        x = x.reshape(x.size(0), int(x.size(1)/self.width_n), self.width_n)
-        residual1 = self.res1(x)
-        x = x.repeat(1,1,self.width_n).reshape(x.size(0), x.size(1)*self.width_n, self.width_n)
-        x = self.fc3(x)
         x = self.relu(x)
         x = x.reshape(x.size(0), int(x.size(1)/self.width_n), self.width_n)
         x = self.fc4(x)
@@ -477,7 +480,7 @@ class SparseLinearNeq(nn.Module):
                 # Append the connectivity, input permutations and output permutations to the neuron truth tables
                 neuron_truth_tables.append(
                     (
-                        self.imask()[n],
+                        self.imask[n],
                         bin_input_permutation_matrix,
                         output_states[:, n],
                         bin_output_states[:, n],
@@ -487,25 +490,9 @@ class SparseLinearNeq(nn.Module):
 
 
 
-class FeatureMask(nn.Module):
-    def __init__(self, in_features: int, out_features: int, fan_in: int, cuda: bool):
-        super(FeatureMask, self).__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.fan_in = fan_in
-        if cuda:
-            self.register_buffer('imask', torch.zeros((self.out_features, self.fan_in)).long().cuda(), persistent=True)
-        else:
-            self.register_buffer('imask', torch.zeros((self.out_features, self.fan_in)).long(), persistent=True)
-        self.reset_parameters()
-
-    def reset_parameters(self) -> None:
-        for i in range(self.out_features):
-            self.imask[i, :] = torch.randperm(self.in_features)[:self.fan_in]
-            self.imask = torch.sort(self.imask, 1).values
-
-    def forward(self):
-        return self.imask
+def SupportMask(out_features: int, fan_in: int):
+    imask = torch.arange(out_features).reshape([out_features//fan_in,fan_in])
+    return imask
 
 
 class ScalarScaleBias(nn.Module):

@@ -62,23 +62,24 @@ def get_float_state_space(
 # TODO: Add an abstract class with a specific interface which all brevitas-based classes inherit from?
 class QuantBrevitasActivation(nn.Module):
     def __init__(
-        self, brevitas_module, pre_transforms: list = [], post_transforms: list = []
+        self, brevitas_module, pre_transforms: list = [], post_transforms: list = [], cuda: bool = True
     ):
         super(QuantBrevitasActivation, self).__init__()
         self.brevitas_module = brevitas_module
         self.pre_transforms = nn.ModuleList(pre_transforms)
         self.post_transforms = nn.ModuleList(post_transforms)
         self.is_bin_output = False
+        self.cuda = cuda
 
     # TODO: Move to a base class
     # TODO: Move the string templates to verilog.py
 
     def get_bin_str_from_float(self, x, is_cuda):
         quant_type = self.get_quant_type()
-        _, bits = self.get_scale_factor_bits()
+        _, bits = self.get_scale_factor_bits(is_cuda)
         if quant_type == QuantType.INT:
             tensor_quant = (
-                self.brevitas_module.act_quant_proxy.fused_activation_quant_proxy.tensor_quant
+                self.brevitas_module.act_quant.fused_activation_quant_proxy.tensor_quant
             )
             narrow_range = tensor_quant.int_quant.narrow_range
             signed = tensor_quant.int_quant.signed
@@ -94,10 +95,10 @@ class QuantBrevitasActivation(nn.Module):
 
     def get_bin_str_from_int(self, x, is_cuda):
         quant_type = self.get_quant_type()
-        scale_factor, bits = self.get_scale_factor_bits()
+        scale_factor, bits = self.get_scale_factor_bits(is_cuda)
         if quant_type == QuantType.INT:
             tensor_quant = (
-                self.brevitas_module.act_quant_proxy.fused_activation_quant_proxy.tensor_quant
+                self.brevitas_module.act_quant.fused_activation_quant_proxy.tensor_quant
             )
             narrow_range = tensor_quant.int_quant.narrow_range
             signed = tensor_quant.int_quant.signed
@@ -120,7 +121,7 @@ class QuantBrevitasActivation(nn.Module):
 
     def get_quant_type(self):
         brevitas_module_type = type(
-            self.brevitas_module.act_quant_proxy.fused_activation_quant_proxy.tensor_quant
+            self.brevitas_module.act_quant.fused_activation_quant_proxy.tensor_quant
         )
         if brevitas_module_type == RescalingIntQuant:
             return QuantType.INT
@@ -134,12 +135,15 @@ class QuantBrevitasActivation(nn.Module):
             )
 
     # TODO: Allow for different bitwidths / scales per output
-    def get_scale_factor_bits(self):
+    def get_scale_factor_bits(self, is_cuda):
         # TODO: put guards in this based on quantization type
-        quant_proxy = self.brevitas_module.act_quant_proxy
+        quant_proxy = self.brevitas_module.act_quant
         current_status = quant_proxy.training
         quant_proxy.eval()
-        _, scale_factor, bits = quant_proxy(quant_proxy.zero_hw_sentinel)
+        zero_point = torch.Tensor([0.0])
+        if is_cuda:
+            zero_point = zero_point.cuda()
+        _, scale_factor, _, bits, _, _ = quant_proxy(zero_point)
         quant_proxy.training = current_status
         return scale_factor, bits
 
@@ -148,10 +152,10 @@ class QuantBrevitasActivation(nn.Module):
     # TODO: Merge this function with 'get_bin_state_space' and remove duplicated code.
     def get_state_space(self, is_cuda):
         quant_type = self.get_quant_type()
-        scale_factor, bits = self.get_scale_factor_bits()
+        scale_factor, bits = self.get_scale_factor_bits(is_cuda)
         if quant_type == QuantType.INT:
             tensor_quant = (
-                self.brevitas_module.act_quant_proxy.fused_activation_quant_proxy.tensor_quant
+                self.brevitas_module.act_quant.fused_activation_quant_proxy.tensor_quant
             )
             narrow_range = tensor_quant.int_quant.narrow_range
             signed = tensor_quant.int_quant.signed
@@ -168,10 +172,10 @@ class QuantBrevitasActivation(nn.Module):
     # 'get_state_space'
     def get_bin_state_space(self, is_cuda):
         quant_type = self.get_quant_type()
-        _, bits = self.get_scale_factor_bits()
+        _, bits = self.get_scale_factor_bits(is_cuda)
         if quant_type == QuantType.INT:
             tensor_quant = (
-                self.brevitas_module.act_quant_proxy.fused_activation_quant_proxy.tensor_quant
+                self.brevitas_module.act_quant.fused_activation_quant_proxy.tensor_quant
             )
             narrow_range = tensor_quant.int_quant.narrow_range
             signed = tensor_quant.int_quant.signed
@@ -194,7 +198,7 @@ class QuantBrevitasActivation(nn.Module):
 
     def forward(self, x):
         if self.is_bin_output:
-            s, _ = self.get_scale_factor_bits()
+            s, _ = self.get_scale_factor_bits(self.cuda)
             x = self.apply_pre_transforms(x)
             x = self.brevitas_module(x)
             x = torch.round(x / s).type(torch.int64)
