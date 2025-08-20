@@ -26,8 +26,8 @@ from torch.nn.parameter import Parameter
 from torch.nn import init
 
 from brevitas.core.quant import QuantType
-from brevitas.core.scaling import ScalingImplType
-from brevitas.nn import QuantHardTanh, QuantReLU
+from brevitas.core.scaling import ParameterScaling
+from brevitas.nn import QuantHardTanh, QuantReLU, QuantIdentity
 
 from pyverilator import PyVerilator
 
@@ -35,9 +35,9 @@ from neuralut.quant import QuantBrevitasActivation
 from neuralut.nn import (
     SparseLinearNeq,
     ScalarBiasScale,
-    FeatureMask,
+    SupportMask,
 )
-from neuralut.init import random_restrict_fanin
+
 
 
 class JetSubstructureNeqModel(nn.Module):
@@ -55,104 +55,202 @@ class JetSubstructureNeqModel(nn.Module):
             in_features = self.num_neurons[i - 1]
             out_features = self.num_neurons[i]
             bn = nn.BatchNorm1d(out_features)
+            initial_value = 1.33
+            neurons_with_mask = (-1*(torch.tensor(model_config["support_layers"], dtype=int)-1))*torch.tensor(self.num_neurons[1:], dtype=int)
             if i == 1:
+                print("Creating input layer")
                 bn_in = nn.BatchNorm1d(in_features)
                 input_bias = ScalarBiasScale(scale=False, bias_init=-0.25)
                 input_quant = QuantBrevitasActivation(
                     QuantHardTanh(
-                        model_config["input_bitwidth"],
+                        bit_width = model_config["input_bitwidth"],
                         max_val=1.0,
-                        narrow_range=False,
+                        min_val=-1.0,
+                        act_scaling_impl=ParameterScaling(initial_value),
                         quant_type=QuantType.INT,
-                        scaling_impl_type=ScalingImplType.PARAMETER,
+                        return_quant_tensor = False,
+                        
                     ),
                     pre_transforms=[bn_in, input_bias],
                 )
-                output_quant = QuantBrevitasActivation(
-                    QuantReLU(
-                        bit_width=model_config["hidden_bitwidth"],
-                        max_val=1.61,
-                        quant_type=QuantType.INT,
-                        scaling_impl_type=ScalingImplType.PARAMETER,
-                    ),
-                    pre_transforms=[bn],
-                )
-                imask = FeatureMask(
-                    in_features,
-                    out_features,
-                    fan_in=model_config["input_fanin"],
-                    cuda=model_config["cuda"],
-                )
+                if model_config["support_layers"][i] == 1:
+                    output_quant = QuantBrevitasActivation(
+                        QuantIdentity(
+                            bit_width=model_config["support_bitwidth"],
+                            quant_type=QuantType.INT,
+                            scaling_impl=ParameterScaling(initial_value),
+                            return_quant_tensor = False,
+                        ),
+                        pre_transforms=[bn],
+                    )
+                else:
+                    output_quant = QuantBrevitasActivation(
+                        QuantReLU(
+                            bit_width=model_config["hidden_bitwidth"],
+                            quant_type=QuantType.INT,
+                            scaling_impl=ParameterScaling(initial_value),
+                            return_quant_tensor = False,
+                            
+                        ),
+                        pre_transforms=[bn],
+                    )
+                imask = model_config["imask"][:self.num_neurons[i]]
+                imask = imask[:, (imask != 0).any(dim=0)]
+
                 layer = SparseLinearNeq(
                     in_features,
                     out_features,
                     input_quant=input_quant,
                     output_quant=output_quant,
                     imask=imask,
+                    support = False,
+                    dense_forward=model_config["dense_forward"],
                     fan_in=model_config["input_fanin"],
                     width_n=model_config["width_n"],
-                    cuda=model_config["cuda"],
+                    cuda=self.is_cuda
                 )
                 layer_list.append(layer)
             elif i == len(self.num_neurons) - 1:
-                output_bias_scale = ScalarBiasScale(bias_init=0.33)
-                output_quant = QuantBrevitasActivation(
-                    QuantHardTanh(
-                        bit_width=model_config["output_bitwidth"],
-                        max_val=1.33,
-                        narrow_range=False,
-                        quant_type=QuantType.INT,
-                        scaling_impl_type=ScalingImplType.PARAMETER,
-                    ),
-                    pre_transforms=[bn],
-                    post_transforms=[output_bias_scale],
-                )
-                imask = FeatureMask(
-                    in_features,
-                    out_features,
-                    fan_in=model_config["output_fanin"],
-                    cuda=model_config["cuda"],
-                )
-                layer = SparseLinearNeq(
-                    in_features,
-                    out_features,
-                    input_quant=layer_list[-1].output_quant,
-                    output_quant=output_quant,
-                    imask=imask,
-                    fan_in=model_config["output_fanin"],
-                    width_n=model_config["width_n"],
-                    apply_input_quant=False,
-                    cuda=model_config["cuda"],
-                )
-                layer_list.append(layer)
+                print("Creating output layer")
+                if model_config["support_layers"][i-1] == 1:
+                    output_bias_scale = ScalarBiasScale(bias_init=0.33)
+                    output_quant = QuantBrevitasActivation(
+                        QuantIdentity(
+                            bit_width=model_config["output_bitwidth"],
+                            quant_type=QuantType.INT,
+                            scaling_impl=ParameterScaling(initial_value),
+                            return_quant_tensor = False,
+                        ),
+                        pre_transforms=[bn],
+                        post_transforms=[output_bias_scale],
+                    )
+                    imask = SupportMask(in_features, model_config["support_fanin"])
+                    layer = SparseLinearNeq(
+                        in_features,
+                        out_features,
+                        input_quant=layer_list[-1].output_quant,
+                        output_quant=output_quant,
+                        imask=imask,
+                        support = True,
+                        dense_forward=False,
+                        fan_in=model_config["support_fanin"],
+                        width_n=model_config["width_n"],
+                        apply_input_quant=False,
+                        cuda=self.is_cuda
+                    )
+                    layer_list.append(layer)
+                else:
+                    output_bias_scale = ScalarBiasScale(bias_init=0.33)
+                    output_quant = QuantBrevitasActivation(
+                        QuantReLU(
+                            bit_width=model_config["output_bitwidth"],
+                            quant_type=QuantType.INT,
+                            scaling_impl=ParameterScaling(initial_value),
+                            return_quant_tensor = False,   
+                        ),
+                        pre_transforms=[bn],
+                        post_transforms=[output_bias_scale],
+                    )
+                    if len(model_config["imask"]) != 0:
+                        imask = model_config["imask"][sum(neurons_with_mask[:i-1]):sum(neurons_with_mask[:i])]
+                    else:
+                        imask = model_config["imask"]
+                    imask = imask[:, (imask != 0).any(dim=0)]
+                    layer = SparseLinearNeq(
+                        in_features,
+                        out_features,
+                        input_quant=layer_list[-1].output_quant,
+                        output_quant=output_quant,
+                        imask=imask,
+                        support = False,
+                        dense_forward=model_config["dense_forward"],
+                        fan_in=model_config["hidden_fanin"],
+                        width_n=model_config["width_n"],
+                        apply_input_quant=False,
+                        cuda=self.is_cuda
+                    )
+                    layer_list.append(layer)
             else:
-                output_quant = QuantBrevitasActivation(
-                    QuantReLU(
-                        bit_width=model_config["hidden_bitwidth"],
-                        max_val=1.61,
-                        quant_type=QuantType.INT,
-                        scaling_impl_type=ScalingImplType.PARAMETER,
-                    ),
-                    pre_transforms=[bn],
-                )
-                imask = FeatureMask(
-                    in_features,
-                    out_features,
-                    fan_in=model_config["hidden_fanin"],
-                    cuda=model_config["cuda"],
-                )
-                layer = SparseLinearNeq(
-                    in_features,
-                    out_features,
-                    input_quant=layer_list[-1].output_quant,
-                    output_quant=output_quant,
-                    imask=imask,
-                    fan_in=model_config["hidden_fanin"],
-                    width_n=model_config["width_n"],
-                    apply_input_quant=False,
-                    cuda=model_config["cuda"],
-                )
-                layer_list.append(layer)
+                if model_config["support_layers"][i-1] == 1:
+                    print("Creating support layer")
+                    if model_config["support_layers"][i] == 1:
+                        output_quant = QuantBrevitasActivation(
+                            QuantIdentity(
+                                bit_width=model_config["support_bitwidth"],
+                                quant_type=QuantType.INT,
+                                scaling_impl=ParameterScaling(initial_value),
+                                return_quant_tensor = False, 
+                            ),
+                            pre_transforms=[bn],
+                        )
+                    else:
+                        output_quant = QuantBrevitasActivation(
+                            QuantReLU(
+                                bit_width=model_config["hidden_bitwidth"],
+                                quant_type=QuantType.INT,
+                                scaling_impl=ParameterScaling(initial_value),
+                                return_quant_tensor = False,   
+                            ),
+                            pre_transforms=[bn],
+                        )
+                    imask = SupportMask(in_features, model_config["support_fanin"])
+                    layer = SparseLinearNeq(
+                        in_features,
+                        out_features,
+                        input_quant=layer_list[-1].output_quant,
+                        output_quant=output_quant,
+                        imask=imask,
+                        support = True,
+                        dense_forward=False,
+                        fan_in=model_config["support_fanin"],
+                        width_n=model_config["width_n"],
+                        apply_input_quant=False,
+                        cuda=self.is_cuda
+                    )
+                    layer_list.append(layer)
+                else:
+                    print("Creating hidden layer")
+                    if model_config["support_layers"][i] == 1:
+                        output_quant = QuantBrevitasActivation(
+                            QuantIdentity(
+                                bit_width=model_config["support_bitwidth"],
+                                quant_type=QuantType.INT,
+                                scaling_impl=ParameterScaling(initial_value),
+                                return_quant_tensor = False,
+                                
+                            ),
+                            pre_transforms=[bn],
+                        )
+                    else:
+                        output_quant = QuantBrevitasActivation(
+                            QuantReLU(
+                                bit_width=model_config["hidden_bitwidth"],
+                                quant_type=QuantType.INT,
+                                scaling_impl=ParameterScaling(initial_value),
+                                return_quant_tensor = False,
+                                
+                            ),
+                            pre_transforms=[bn],
+                        )
+                    if len(model_config["imask"]) != 0:
+                        imask = model_config["imask"][sum(neurons_with_mask[:i-1]):sum(neurons_with_mask[:i])]
+                    else:
+                        imask = model_config["imask"]
+                    imask = imask[:, (imask != 0).any(dim=0)]
+                    layer = SparseLinearNeq(
+                        in_features,
+                        out_features,
+                        input_quant=layer_list[-1].output_quant,
+                        output_quant=output_quant,
+                        imask=imask,
+                        support = False,
+                        dense_forward=model_config["dense_forward"],
+                        fan_in=model_config["hidden_fanin"],
+                        width_n=model_config["width_n"],
+                        apply_input_quant=False,
+                        cuda=self.is_cuda
+                    )
+                    layer_list.append(layer)
         self.module_list = nn.ModuleList(layer_list)
         self.is_verilog_inference = False
         self.latency = 1
@@ -187,8 +285,8 @@ class JetSubstructureNeqModel(nn.Module):
         # Get integer output from the first layer
         input_quant = self.module_list[0].input_quant
         output_quant = self.module_list[-1].output_quant
-        _, input_bitwidth = self.module_list[0].input_quant.get_scale_factor_bits()
-        _, output_bitwidth = self.module_list[-1].output_quant.get_scale_factor_bits()
+        _, input_bitwidth = self.module_list[0].input_quant.get_scale_factor_bits(self.is_cuda)
+        _, output_bitwidth = self.module_list[-1].output_quant.get_scale_factor_bits(self.is_cuda)
         input_bitwidth, output_bitwidth = int(input_bitwidth), int(output_bitwidth)
         total_input_bits = self.module_list[0].in_features * input_bitwidth
         total_output_bits = self.module_list[-1].out_features * output_bitwidth

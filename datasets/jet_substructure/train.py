@@ -35,49 +35,42 @@ from dataset import JetSubstructureDataset
 from models import JetSubstructureNeqModel
 
 configs = {
-    "jsc-2l": {
-        "hidden_layers": [32],
-        "input_bitwidth": 4,
+    "jsc-cernbox": {
+        "hidden_layers": [320,160,80,40,20,10],
+        "support_layers": [0,1,1,1,1,1,1],
+        "input_bitwidth": 8,
         "hidden_bitwidth": 4,
-        "output_bitwidth": 4,
-        "input_fanin": 3,
-        "hidden_fanin": 3,
-        "output_fanin": 3,
-        "width_n": 8,
-        "weight_decay": 0,
+        "output_bitwidth": 8,
+        "support_bitwidth": 4,
+        "input_fanin": 1,
+        "hidden_fanin": 2,
+        "output_fanin": 2, #this is not used
+        "support_fanin": 2,
+        "width_n": 64,
+        "weight_decay": 1e-3,
         "batch_size": 1024,
         "epochs": 1000,
-        "learning_rate": 1e-3,
+        "learning_rate": 0.003,
         "seed": 8766,
         "checkpoint": None,
-    },
-    "jsc-5l": {
-        "hidden_layers": [128, 128, 128, 64],
-        "input_bitwidth": 7,
-        "hidden_bitwidth": 4,
-        "output_bitwidth": 4,
-        "input_fanin": 2,
-        "hidden_fanin": 3,
-        "output_fanin": 3,
-        "width_n": 16,
-        "weight_decay": 0,
-        "batch_size": 1024,
-        "epochs": 1000,
-        "learning_rate": 1e-3,
-        "seed": 312846,
-        "checkpoint": None,
+        "dense_epochs": 25,
+        "wd": 0.0001,
+        "wd1": 0.07
     },
 }
 
 # A dictionary, so we can set some defaults if necessary
 model_config = {
     "hidden_layers": None,
+    "support_layers": None,
     "input_bitwidth": None,
     "hidden_bitwidth": None,
     "output_bitwidth": None,
+    "support_bitwidth": None,
     "input_fanin": None,
     "hidden_fanin": None,
     "output_fanin": None,
+    "support_fanin": None,
     "width_n": None,
 }
 
@@ -87,6 +80,9 @@ training_config = {
     "epochs": None,
     "learning_rate": None,
     "seed": None,
+    "dense_epochs": None,
+    "wd": None,
+    "wd1": None
 }
 
 dataset_config = {
@@ -162,7 +158,10 @@ def train(model, datasets, train_cfg, options):
 
     # Main training loop
     maxAcc = 0.0
-    num_epochs = train_cfg["epochs"]
+    if model_cfg['dense_forward'] == True:
+        num_epochs = train_cfg["dense_epochs"]
+    else:
+        num_epochs = train_cfg["epochs"]
     for epoch in range(0, num_epochs):
         # Train for this epoch
         model.train()
@@ -173,7 +172,10 @@ def train(model, datasets, train_cfg, options):
                 data, target = data.cuda(), target.cuda()
             optimizer.zero_grad()
             output = model(data)
-            loss = criterion(output, torch.max(target, 1)[1])
+            if model_cfg['dense_forward'] == True:
+                loss = criterion(output, torch.max(target, 1)[1]) + regularizer(model)
+            else:
+                loss = criterion(output, torch.max(target, 1)[1])
             pred = output.detach().max(1, keepdim=True)[1]
             target_label = torch.max(target.detach(), 1, keepdim=True)[1]
             curCorrect = pred.eq(target_label).long().sum()
@@ -188,27 +190,66 @@ def train(model, datasets, train_cfg, options):
         accuracy = 100.0 * correct / len(train_loader.dataset)
         val_accuracy = test(model, val_loader, options["cuda"])
         test_accuracy = test(model, test_loader, options["cuda"])
-        modelSave = {
-            "model_dict": model.state_dict(),
-            "optim_dict": optimizer.state_dict(),
-            "val_accuracy": val_accuracy,
-            "test_accuracy": test_accuracy,
-            "epoch": epoch,
-        }
-        torch.save(modelSave, "test_" + options["log_dir"] + "/checkpoint.pth")
-        if maxAcc < test_accuracy:
-            torch.save(modelSave, "test_" + options["log_dir"] + "/best_accuracy.pth")
-            maxAcc = test_accuracy
-
-        wandb.log(
-            {
-                "Train Acc (%)": accuracy.detach().cpu().numpy(),
-                "Train Loss(%)": accLoss.detach().cpu().numpy(),
-                "Test Acc (%)": test_accuracy,
-                "Valid Acc(%)": val_accuracy,
+        if model_cfg['dense_forward'] == False:
+            modelSave = {
+                "model_dict": model.state_dict(),
+                "optim_dict": optimizer.state_dict(),
+                "val_accuracy": val_accuracy,
+                "test_accuracy": test_accuracy,
+                "epoch": epoch,
             }
-        )
+            torch.save(modelSave, "test_" + options["log_dir"] + "/checkpoint.pth")
+            if maxAcc < test_accuracy:
+                torch.save(modelSave, "test_" + options["log_dir"] + "/best_accuracy.pth")
+                maxAcc = test_accuracy
+            wandb.log(
+                {
+                    "Train Acc (%)": accuracy.detach().cpu().numpy(),
+                    "Train Loss(%)": accLoss.detach().cpu().numpy(),
+                    "Test Acc (%)": test_accuracy,
+                    "Valid Acc(%)": val_accuracy,
+                }
+            )
+        else:
+            print(f"Epoch: {epoch}/{num_epochs}\tTest Acc: {test_accuracy:.2f}")
 
+def GetInputMask(model, is_cuda):
+    imask = torch.tensor([])
+    if is_cuda:
+        imask = imask.cuda()
+    max_fan_in = max(model_cfg["hidden_fanin"], model_cfg["input_fanin"], model_cfg["output_fanin"], model_cfg["support_fanin"])
+    # loop through layers
+    for i in range(0,len(model_cfg["hidden_layers"])+1):
+        module = model.module_list[i]
+        if hasattr(module, 'dense_forward') and module.dense_forward:
+            weight = module.res2_dense.weight
+            fan_in = module.fan_in
+            for row in range(weight.size(0)):
+                weight_row = weight[row, :]
+                idx = torch.topk(torch.abs(weight_row), fan_in).indices
+                # incase fan_in is different for different layers
+                if is_cuda:
+                    imask_row = torch.cat((idx, torch.zeros(max_fan_in-len(idx)).cuda())).unsqueeze(0)
+                else:
+                    imask_row = torch.cat((idx, torch.zeros(max_fan_in-len(idx)))).unsqueeze(0)
+                imask = torch.cat((imask, imask_row), dim = 0)
+        
+    return imask.long()
+
+def regularizer(model):
+    R = 0
+    for i in range(0,len(model_cfg["hidden_layers"])+1):
+        module = model.module_list[i]
+        if hasattr(module, 'dense_forward') and module.dense_forward:
+            weight1 = module.res2_dense.weight
+            weight2 = module.fc1_dense.weight
+            res2_dense_sum = weight1.abs().sum(dim=-1)
+            fc1_dense_sum = weight2.abs().sum(dim=-1)
+            l1 = torch.cat((res2_dense_sum, fc1_dense_sum), dim=0)
+            
+            # Calculate R incrementally on the device
+            R += train_cfg['wd'] * (torch.pow(2, train_cfg['wd1'] * l1) - 1).sum()
+    return R
 
 def test(model, dataset_loader, cuda):
     model.eval()
@@ -235,7 +276,7 @@ if __name__ == "__main__":
         "--arch",
         type=str,
         choices=configs.keys(),
-        default="jsc-2l",
+        default="jsc-cernbox",
         metavar="",
         help="Specific the neural network model to use (default: %(default)s)",
     )
@@ -302,6 +343,13 @@ if __name__ == "__main__":
         help="Bitwidth to use at the output (default: %(default)s)",
     )
     parser.add_argument(
+        "--support_bitwidth",
+        type=int,
+        default=None,
+        metavar="",
+        help="Bitwidth to use at the support layer (default: %(default)s)",
+    )
+    parser.add_argument(
         "--input_fanin",
         type=int,
         default=None,
@@ -314,6 +362,14 @@ if __name__ == "__main__":
         default=None,
         metavar="",
         help="Fanin to use for the hidden layers (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--support_layers",
+        nargs="+",
+        type=int,
+        default=None,
+        metavar="",
+        help="A boolean list of support layers (default: %(default)s)",
     )
     parser.add_argument(
         "--output_fanin",
@@ -371,6 +427,34 @@ if __name__ == "__main__":
         metavar="", 
         help="Device_id for GPU",
     )
+    parser.add_argument(
+        "--dense_epochs",
+        type=int,
+        default=None,
+        metavar="",
+        help="Number of epochs to train the dense model (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--support_fanin",  
+        type=int,
+        default=None,
+        metavar="",
+        help="Fanin to use for the support layers (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--wd",
+        type=float,
+        default=None,
+        metavar="",
+        help="Weight decay for group regularizer (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--wd1",
+        type=float,
+        default=None,
+        metavar="",
+        help="Weight decay for group regularizer (default: %(default)s)",
+    )
     args = parser.parse_args()
     defaults = configs[args.arch]
     options = vars(args)
@@ -405,8 +489,10 @@ if __name__ == "__main__":
     torch.manual_seed(train_cfg["seed"])
     os.environ["PYTHONHASHSEED"] = str(train_cfg["seed"])
     if options["cuda"]:
+        torch.cuda.manual_seed(train_cfg["seed"])
         torch.cuda.manual_seed_all(train_cfg["seed"])
         torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
         torch.cuda.set_device(options_cfg["device"])
 
     # Fetch the datasets
@@ -421,37 +507,33 @@ if __name__ == "__main__":
         dataset_cfg["dataset_file"], dataset_cfg["dataset_config"], split="test"
     )
 
-    # Instantiate model
-
-    x, y = dataset["train"][0]
-    model_cfg["input_length"] = len(x)
-    model_cfg["output_length"] = len(y)
-    model = JetSubstructureNeqModel(model_cfg)
-    if options_cfg["checkpoint"] is not None:
-        print(f"Loading pre-trained checkpoint {options_cfg['checkpoint']}")
-        checkpoint = torch.load(options_cfg["checkpoint"], map_location="cpu")
-        model.load_state_dict(checkpoint["model_dict"])
 
     # start a new wandb run to track this script
     wandb.init(
         # set the wandb project where this run will be logged
-        project="NeuraLUT",
+        project="NeuraLUT-Assemble",
         # track hyperparameters and run metadata
         config={
             "hidden_layers": model_cfg["hidden_layers"],
+            "support_layers": model_cfg["support_layers"],
             "input_bitwidth": model_cfg["input_bitwidth"],
             "hidden_bitwidth": model_cfg["hidden_bitwidth"],
             "output_bitwidth": model_cfg["output_bitwidth"],
+            "support_bitwidth": model_cfg["support_bitwidth"],
             "input_fanin": model_cfg["input_fanin"],
             "hidden_fanin": model_cfg["hidden_fanin"],
             "output_fanin": model_cfg["output_fanin"],
+            "support_fanin": model_cfg["support_fanin"],
             "width_n": model_cfg["width_n"],
             "weight_decay": train_cfg["weight_decay"],
             "batch_size": train_cfg["batch_size"],
             "epochs": train_cfg["epochs"],
             "learning_rate": train_cfg["learning_rate"],
             "seed": train_cfg["seed"],
-            "dataset": "jsc",
+            "dense_epochs": train_cfg["dense_epochs"],
+            "wd": train_cfg["wd"],
+            "wd1": train_cfg["wd1"],
+            "dataset": "jsc-cernbox",
         },
     )
 
@@ -459,6 +541,26 @@ if __name__ == "__main__":
     wandb.define_metric("Test Acc (%)", summary="max")
     wandb.define_metric("Valid Acc(%)", summary="max")
     wandb.define_metric("Train Loss(%)", summary="min")
-    wandb.watch(model, log_freq=10)
+    
+    # Instantiate model
+
+    model_cfg["input_length"] = 16
+    model_cfg["output_length"] = 5
+
+    model_cfg['dense_forward'] = True
+    model_cfg['imask'] = torch.tensor([]).cuda()
+
+    model_dense = JetSubstructureNeqModel(model_cfg)
+    train(model_dense, dataset, train_cfg, options_cfg)
+    imask = GetInputMask(model_dense, options_cfg["cuda"])
+
+    model_cfg['dense_forward'] = False
+    model_cfg['imask'] = imask.cuda()
+
+    model = JetSubstructureNeqModel(model_cfg)
+    torch.save(imask, "test_" + options_cfg["log_dir"] + "/imask.pth")
+
     train(model, dataset, train_cfg, options_cfg)
+
     wandb.finish()
+

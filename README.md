@@ -1,18 +1,33 @@
-# NeuraLUT: Hiding Neural Network Density in Boolean Synthesizable Functions
+# NeuraLUT-Assemble: Hardware-aware Assembling of Sub-Neural Networks for Efficient LUT Inference
 
-[![DOI](https://img.shields.io/badge/DOI-10.1109/FPL64840.2024.00028-orange)](https://doi.org/10.1109/FPL64840.2024.00028)
-[![arXiv](https://img.shields.io/badge/arXiv-2403.00849-b31b1b.svg?style=flat)](https://arxiv.org/abs/2403.00849)
+[![DOI](https://img.shields.io/badge/DOI-10.1109/FCCM62733.2025.00077-orange)](https://doi.org/10.1109/FCCM62733.2025.00077)
+[![arXiv](https://img.shields.io/badge/arXiv-2504.00592-b31b1b.svg?style=flat)](https://arxiv.org/abs/2504.00592)
 
 <p align="left">
   <img src="logo.png" width="500" alt="NeuraLUT Logo">
 </p>
 
-NeuraLUT is the first quantized neural network training methodology that maps dense and full-precision sub-networks with skip-connections to LUTs to leverage the underlying structure of the FPGA architecture.
-> _Built on top of [LogicNets](https://github.com/Xilinx/logicnets), NeuraLUT introduces new architecture designs, optimized training flows, and innovative sparsity handling._
+NeuraLUT-Assemble (FCCM'25) extends our prior work by assembling multiple NeuraLUT neurons into tree structures with larger fan-in.
+- The hardware-aware assembling strategy groups connections at the input of these tree structures, guided by our hardware-aware pruning method.
+- This design achieves better trade-offs in LUT utilization, latency, and accuracy compared to the original NeuraLUT framework.
+
+## This project builds on two earlier works
+
+| NeuraLUT — [release v1.0.0](https://github.com/MartaAndronic/NeuraLUT/releases/tag/v1.0.0) | PolyLUT - Hardware-aware Structured Pruning |
+| --- | --- |
+| [![DOI](https://img.shields.io/badge/DOI-10.1109/FPL64840.2024.00028-orange)](https://doi.org/10.1109/FPL64840.2024.00028) | [![DOI](https://img.shields.io/badge/DOI-10.1109/TC.2025.3586311-orange)](https://doi.org/10.1109/TC.2025.3586311)|
+
 ---
 
 #### ✨ New! ReducedLUT branch available for advanced compression using don't-cares (see below).
 
+---
+#### 📓 New! Demo Notebooks
+
+We include demo notebooks in each subfolder inside the `datasets/` directory to help you get started quickly and as an exercise.  
+
+**Pretrained checkpoints** are also provided in the `test_demo/` folder so you can skip training.
+>These checkpoints are not the exact ones used in the paper but are provided for convenience and practice.  
 ---
 
 ## 🚀 Features
@@ -95,24 +110,21 @@ We released a dedicated [ReducedLUT branch](https://github.com/MartaAndronic/Neu
 
 ---
 
-## 🧬 What's New in NeuraLUT vs LogicNets?
-
-| Feature | LogicNets | NeuraLUT |
-|--------|-----------|-----------|
-| **Dataset Support** | Jet Substructure | Jet Substructure, MNIST |
-| **Training Flow** | Weight mask for sparsity | FeatureMask for input channel control |
-| **Forward Function** | Basic FC layers | Multiple FCs + Skip Connections |
-| **Experiment Logging** | TensorBoard | Weights & Biases |
-| **GPU Integration** | ✘ | ✅ |
-| **Neuron Enumeration** | Basic LUT inference | Batched truth table gen |
-| **Architecture Customization** | Limited | Novel model designs described in paper |
-
----
-
 ## 📚 Citation
 
-#### If this repo contributes to your research or FPGA design, please cite our NeuraLUT paper:
+#### If this repo contributes to your research or FPGA design, please cite our papers:
 
+```bibtex
+@inproceedings{andronic2025neuralut-assemble,
+	author	= "Andronic, Marta and Constantinides, George A.",
+	title		= "{NeuraLUT-Assemble: Hardware-Aware Assembling of Sub-Neural Networks for Efficient LUT Inference}",
+	booktitle	= "{2025 IEEE 33rd Annual International Symposium on Field-Programmable Custom Computing Machines (FCCM)}",
+	pages		= "208-216",
+	publisher	= "IEEE",
+	year		= 2025,
+	note		= "doi: 10.1109/FCCM62733.2025.00077"
+}
+```
 ```bibtex
 @inproceedings{andronic2024neuralut,
 	author	= "Andronic, Marta and Constantinides, George A.",
@@ -122,6 +134,17 @@ We released a dedicated [ReducedLUT branch](https://github.com/MartaAndronic/Neu
 	publisher	= "IEEE",
 	year		= 2024,
 	note		= "doi: 10.1109/FPL64840.2024.00028"
+}
+```
+```bibtex
+@inproceedings{andronic2024neuralut,
+	author	= "Andronic, Marta and Constantinides, George A.",
+	title		= "{PolyLUT: Ultra-Low Latency Polynomial Inference With Hardware-Aware Structured Pruning}",
+	booktitle	= "{IEEE Transactions on Computers}",
+	pages		= "3181-3194",
+	publisher	= "IEEE",
+	year		= 2025,
+	note		= "doi: 10.1109/TC.2025.3586311"
 }
 ```
 #### If ReducedLUT contributes to your research please also cite:
