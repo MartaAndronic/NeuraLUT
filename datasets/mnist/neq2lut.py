@@ -21,8 +21,6 @@ import os
 from argparse import ArgumentParser
 
 import torch
-import random
-import numpy as np
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
@@ -37,11 +35,11 @@ from models import MnistNeqModel, MnistLutModel
 from neuralut.synthesis import synthesize_and_get_resource_counts
 
 other_options = {
-    "seed": 3,
     "cuda": None,
     "device": 1,
     "log_dir": None,
     "checkpoint": None,
+    "imask": None,
     "add_registers": False
 }
 
@@ -53,7 +51,7 @@ if __name__ == "__main__":
         "--arch",
         type=str,
         choices=configs.keys(),
-        default="hdr-5l",
+        default="hdr-5l-0.1",
         help="Specific the neural network model to use (default: %(default)s)",
     )
     parser.add_argument(
@@ -82,6 +80,13 @@ if __name__ == "__main__":
         help="Bitwidth to use at the output (default: %(default)s)",
     )
     parser.add_argument(
+        "--support_bitwidth",
+        type=int,
+        default=None,
+        metavar="",
+        help="Bitwidth to use at the support layer (default: %(default)s)",
+    )
+    parser.add_argument(
         "--input-fanin",
         type=int,
         default=None,
@@ -92,6 +97,14 @@ if __name__ == "__main__":
         type=int,
         default=None,
         help="Fanin to use for the hidden layers (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--support_layers",
+        nargs="+",
+        type=int,
+        default=None,
+        metavar="",
+        help="A boolean list of support layers (default: %(default)s)",
     )
     parser.add_argument(
         "--output-fanin",
@@ -133,12 +146,6 @@ if __name__ == "__main__":
         help="A location to store the log output of the training run and the output model (default: %(default)s)",
     )
     parser.add_argument(
-        "--seed",
-        type=int,
-        required=True,
-        help="Seed to use for RNG (default: %(default)s)",
-    )
-    parser.add_argument(
         "--device",
         type=int,
         required=True,
@@ -151,10 +158,23 @@ if __name__ == "__main__":
         help="The checkpoint file which contains the model weights",
     )
     parser.add_argument(
+        "--imask",
+        type=str,
+        required=True,
+        help="The checkpoint file which contains the model weights",
+    )
+    parser.add_argument(
         "--add-registers",
         action="store_true",
         default=False,
         help="Add registers between each layer in generated verilog (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--support_fanin",  
+        type=int,
+        default=None,
+        metavar="",
+        help="Fanin to use for the support layers (default: %(default)s)",
     )
     parser.add_argument(
         "--cuda",
@@ -183,19 +203,12 @@ if __name__ == "__main__":
     for k in other_options.keys():
         options_cfg[k] = config[k]
     model_cfg["cuda"] = options_cfg["cuda"]
-    # Set random seeds
-    random.seed(config["seed"])
-    np.random.seed(config["seed"])
-    torch.manual_seed(config["seed"])
-    os.environ["PYTHONHASHSEED"] = str(config["seed"])
     if options_cfg["cuda"]:
-        torch.cuda.manual_seed_all(config["seed"])
-        torch.backends.cudnn.deterministic = True
         torch.cuda.set_device(options_cfg["device"])
-
+    
     # Fetch the test set
     dataset = {}
-    dataset[args.dataset_split] = datasets.MNIST(
+    dataset["test"] = datasets.MNIST(
         "mnist_data",
         download=False,
         train=False,
@@ -207,18 +220,20 @@ if __name__ == "__main__":
         ),
     )
     test_loader = DataLoader(
-        dataset[args.dataset_split], batch_size=config["batch_size"], shuffle=False
+        dataset["test"], batch_size=config["batch_size"], shuffle=False
     )
 
     # Instantiate the PyTorch model
     model_cfg["input_length"] = 784
     model_cfg["output_length"] = 10
+    model_cfg["imask"] = torch.load(options_cfg["imask"], map_location="cuda:{}".format(options_cfg["device"]))
+    model_cfg['dense_forward'] = False
+    
     model = MnistNeqModel(model_cfg)
     if options_cfg["cuda"]:
         model.cuda()
 
     # Load the model weights
-
     checkpoint = torch.load(options_cfg["checkpoint"], map_location="cuda:{}".format(options_cfg["device"]) if options_cfg["cuda"] else "cpu")
     model.load_state_dict(checkpoint["model_dict"])
 
@@ -242,8 +257,8 @@ if __name__ == "__main__":
     lut_accuracy = test(lut_model, test_loader, cuda=options_cfg["cuda"])
     print("LUT-Based Model accuracy: %f" % (lut_accuracy))
     modelSave = {"model_dict": lut_model.state_dict(), "test_accuracy": lut_accuracy}
-
     torch.save(modelSave, options_cfg["log_dir"] + "/lut_based_model.pth")
+    
     print("Generating verilog in %s..." % (options_cfg["log_dir"]))
     module_list_to_verilog_module(
         lut_model.module_list,
@@ -254,7 +269,6 @@ if __name__ == "__main__":
     print("Top level entity stored at: %s/neuralut.v ..." % (options_cfg["log_dir"]))
 
     io_filename = None
-
     print("Running inference simulation of Verilog-based model...")
     lut_model.verilog_inference(options_cfg["log_dir"], "neuralut.v", logfile=io_filename, add_registers=options_cfg["add_registers"])
     print("Testing Verilog-Based Model")
